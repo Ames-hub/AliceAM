@@ -1,0 +1,41 @@
+**AliceAM Discord Bot License Agreement**
+
+Version 1.1 - Date: 24/1/2024 (DD/MM/YYYY)
+
+This license agreement ("Agreement") is entered into between the original designer, Amelia, and any person or entity ("User") who uses, modifies, redistributes, or sells the open-source Discord bot "AliceAM."
+
+**1. Attribution and Open-Source Requirement:**
+
+   a. **Credit Requirement:** Users of the open-source bot must provide proper credit to the original designer, Amelia, in any form of distribution, modification, or use.
+
+   b. **Inclusion of License:** The license must be included in any redistribution or modification of the bot. Users who modify the code must also ensure that their modifications are properly credited to both Amelia and themselves.
+
+   c. **Credit Command Requirement:** Within the "cogs" folder, there exists an application command named "credit." It is mandatory to include this command without any modifications, except under specific circumstances. The command may only be modified in the case of a bug that needs fixing or if there is a desire to alter the style of the discord embed. Additionally, users have the freedom to add their name to the list of credits, making this the sole allowed addition to the command.
+
+**2. Commercial Use and Feature Limitations:**
+
+   a. **Non-Restrictive Commercial Use:** Users are allowed to sell the bot commercially, either by selling access to certain features or by removing usage limitations. However, these limitations should not excessively restrict the user experience.
+
+   b. **Feature Limitation Definition:** Restrictive commercial use is defined as placing more than 40% of the bot's commands or features behind a paywall, limiting substantial functionalities for non-paying users.
+
+   c. **Alternative Criteria:** In addition to the aforementioned definition, any commercial use that significantly hinders the basic functionality or purpose of the bot for non-paying users may also be considered restrictive.
+
+   d. **Evaluation by Original Designer:** In case of uncertainty, the original designer, Amelia, reserves the right to evaluate and determine whether a particular commercial use is restrictive.
+
+**3. Redistribution and Modification Rights:**
+
+   a. **Redistribution:** All users are permitted to redistribute the open-source code of AliceAM.
+
+   b. **Modification and Redistribution:** Users are allowed to modify and redistribute the bot's code. Proper credit to Amelia and acknowledgment of the original license must be maintained.
+
+    c. **Closed-Source Modification:** Users who modify the bot's code are allowed to create closed-source modifications. However, in any redistributed form, the original open-source license and proper credit to Amelia must be included.
+
+    Additionally, in the event that a bot modified with closed-source modifications is suspected of engaging in illicit activity, the user must, upon request, provide Amelia with access to the modified code and comply with a code review for security purposes.
+
+**Disclaimer:**
+
+This license is provided "as-is" without any warranty. Amelia shall not be held liable for any damages arising from the use, modification, or distribution of the bot.
+
+By using, modifying, redistributing, or selling the AliceAM Discord bot, the User agrees to comply with the terms and conditions outlined in this license agreement.
+
+**End of License Agreement**
