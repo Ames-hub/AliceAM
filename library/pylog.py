@@ -37,6 +37,7 @@ class logQueue:
         """
         directory = self.cachedir
         # Get the list of files in the directory
+        os.makedirs(directory, exist_ok=True)
         cache = os.listdir(directory)
 
         if queue_type == "both":

@@ -1,6 +1,6 @@
 # Automoderation functions.py
 from .botapp import bot
-from .postgre import postgre
+from .storage import memory
 import lightbulb, hikari, datetime, os
 colourless = bot.d['colourless']
 
@@ -19,6 +19,7 @@ class automod:
             '''
             Much like the Heuristical checker, but instead this bases it off the stored trustability of the user.
             '''
+            raise NotImplementedError
         
         class components:
             '''
@@ -50,7 +51,7 @@ class automod:
                 elif account_for_rep is False and user_id is not None:
                     raise ValueError("account_for_rep is False but user_id is not None. Need account_for_rep to be True for fetching reputation to matter.")
                 elif account_for_rep and user_id is not None:
-                    self.reputation = postgre.reputation.get(user_id)
+                    self.reputation = memory.reputation.get(user_id)
                 self.user_id = user_id
 
             def remove_symbols(self):

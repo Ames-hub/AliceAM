@@ -6,8 +6,14 @@ import os
 dotenv.load_dotenv("secrets.env")
 INTENTS = hikari.Intents.ALL
 
+TOKEN = os.environ.get("TOKEN")
+if TOKEN == None:
+    from main import introduction
+    introduction()
+    print("Please restart the bot.")
+    exit()
 bot = lightbulb.BotApp(
-    token=os.environ.get("TOKEN"),
+    token=TOKEN,
     prefix="//",
     intents=INTENTS
 )
