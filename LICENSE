@@ -10,7 +10,7 @@ This license agreement ("Agreement") is entered into between the original design
 
    b. **Inclusion of License:** The license must be included in any redistribution or modification of the bot. Users who modify the code must also ensure that their modifications are properly credited to both Amelia and themselves.
 
-   c. **Credit Command Requirement:** Within the "cogs" folder, there exists an application command named "credit." It is mandatory to include this command without any modifications, except under specific circumstances. The command may only be modified in the case of a bug that needs fixing or if there is a desire to alter the style of the discord embed. Additionally, users have the freedom to add their name to the list of credits, making this the sole allowed addition to the command.
+   c. **Credit Command Requirement:** Within the "cogs/plugins" folder, there exists an application command named "credits". It is mandatory to include this command without any modifications, except under specific circumstances. The command may only be modified in the case of a bug that needs fixing or if there is a desire to alter the style of the discord embed. Additionally, users have the freedom to add their name to the list of credits, making this the sole allowed addition to the command.
 
 **2. Commercial Use and Feature Limitations:**
 

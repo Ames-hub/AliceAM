@@ -1,3 +1,16 @@
+import logging, datetime
+datenow = datetime.datetime.now().strftime("%Y-%m-%d %I%p")
+logging.basicConfig(
+    level=logging.INFO,
+    filename=f"logs/{datenow}.log",
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logging.basicConfig(
+    level=logging.ERROR,
+    filename=f"logs/{datenow}.log",
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
 slurs = [
     "debugslur9291293949390213924382398283754675986238645789236458723",
     "nigger",

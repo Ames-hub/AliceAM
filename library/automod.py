@@ -13,7 +13,18 @@ class automod:
             if content == None or content == "" or blacklist == []:
                 return False
 
-            return False
+            components = automod.checkers.components(content, blacklist, False)
+
+            if components.substring_check() is True:
+                return True
+            elif components.symbol_check() is True:
+                return True
+            elif components.equality_check() is True:
+                return True
+            elif components.wsw_check() is True:
+                return True
+            else:
+                return False
     
         def repHeuristic(content:str, blacklist:list[str], user_id) -> bool:
             '''
@@ -68,9 +79,9 @@ class automod:
                     if word in self.content:
                         return True
 
-            def punct_check(self):
+            def symbol_check(self):
                 '''
-                Check for words with punctuation. eg, "Your such a sl!ur"
+                Check for words with symbols/punctuation. eg, "Your such a sl!ur"
                 '''
                 nosymb_content = self.remove_symbols()
                 # Could be None if the message was all punctuation
@@ -92,7 +103,8 @@ class automod:
                 # Check for words with spaces. eg, "Your such a sl ur For real!"
                 # 'WsW check' (word, space, word check)
                 content = self.content
-                if len(content.split(" ")) > 1:
+                content_count = len(content.split(" "))
+                if content_count > 1:
                     for word in content:
                         # From content[0] and onwards, join the next part of the string and check for equality
                         if word == " ":
@@ -105,6 +117,9 @@ class automod:
                                         return True
                             except IndexError:
                                 pass
+                elif content_count == 1:
+                    # If there is only one word, there is no way it can be a WsW check. Equality check will find it.
+                    return False
                 else:
                     content = content.split(" ")
                     content = f"{content[0]}{content[1]}"

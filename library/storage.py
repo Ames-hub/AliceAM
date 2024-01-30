@@ -3,9 +3,7 @@ import dotenv
 import os
 from .jmod import jmod
 from .data_tables import data_tables
-from .pylog import pylog
-
-pylogger = pylog()
+from library.variables import logging
 
 dotenv.load_dotenv('secrets.env')
 db_conn_details = {
@@ -48,7 +46,7 @@ class connmanager:
             self.latest_conn: psycopg2.extensions.connection = psycopg2.connect(**db_conn_details)
         except psycopg2.OperationalError as err:
             print("Could not connect to database. I suggest you check your credentials and ensure the Schema/Database exists with a valid host and port.")
-            pylogger.error("Couldn't connect to DB. Check your credentials and ensure the Schema/Database exists with a valid host and port.", err)
+            logging.error("Couldn't connect to DB. Check your credentials and ensure the Schema/Database exists with a valid host and port.")
             return False
 
 connman = connmanager()
@@ -68,7 +66,7 @@ class db_tables:
                     # Column name: Column properties
                     'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
                     'antiswear_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
-                    'antislur_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                    'antislur_enabled': 'BOOLEAN NOT NULL DEFAULT TRUE',
                 },
                 'users': {
                     'user_id': 'BIGINT NOT NULL PRIMARY KEY',
@@ -117,8 +115,30 @@ class db_tables:
             # Handle exceptions, log or print the error
             print(f"An error occurred: {e}")
 
+    def ensure_guild(guild_id):
+        '''
+        Ensures the guild is in the database's guilds table.
+        '''
+        conn = connman.fetch()
+        cur = conn.cursor()
+
+        # Check if the guild exists
+        cur.execute('''
+            SELECT EXISTS (
+                SELECT 1
+                FROM guilds
+                WHERE guild_id = %s
+            );
+        ''', (guild_id,))
+        guild_exist = cur.fetchone()[0]
+
+        # If the guild doesn't exist, add it
+        if not guild_exist:
+            cur.execute('INSERT INTO guilds (guild_id) VALUES (%s);', (guild_id,))
+            conn.commit()
+
 class postgre:
-    def query(query: str, args: tuple) -> list:
+    def query(query: str, args: tuple, do_commit:bool=True) -> list:
         '''
         Executes a query and returns the result.
         uses fetchall() to return all rows.
@@ -127,18 +147,29 @@ class postgre:
         cur = conn.cursor()
 
         cur.execute(query, args)
-        return cur.fetchall()
-    
+        if do_commit:
+            conn.commit()
+        try:
+            data = cur.fetchall()
+            if data == [] or type(data) in [list, tuple]:
+                return True # If the query was successful but there was no data, return True
+            else:
+                return data
+        except psycopg2.ProgrammingError:
+            return []
+
     class guild:
         def __init__(self, guild_id: int) -> None:
-            self.guild_id = guild_id\
+            self.guild_id = guild_id
+            # Makes sure the guild is in the database
+            db_tables.ensure_guild(guild_id)
             
         def get_antiswear_enabled(self) -> bool:
             '''
             Returns the value of the antiswear_enabled column in the guilds table.
             '''
             query = f"SELECT antiswear_enabled FROM guilds WHERE guild_id=%s"
-            result = postgre.query(query, args=(self.guild_id,))
+            result = postgre.query(query, args=(self.guild_id,), do_commit=False)
             return result[0][0]
         
         def set_antiswear_enabled(self, value: bool) -> None:
@@ -153,7 +184,7 @@ class postgre:
             Returns the value of the antislur_enabled column in the guilds table.
             '''
             query = f"SELECT antislur_enabled FROM guilds WHERE guild_id=%s"
-            result = postgre.query(query, args=(self.guild_id,))
+            result = postgre.query(query, args=(self.guild_id,), do_commit=False)
             return result[0][0]
         
         def set_antislur_enabled(self, value: bool) -> None:
@@ -162,6 +193,7 @@ class postgre:
             '''
             query = f"UPDATE guilds SET antislur_enabled=%s WHERE guild_id=%s"
             postgre.query(query, args=(value, self.guild_id))
+            
 
     class user_reputation:
         def __init__(self, user_id: int) -> None:
@@ -172,7 +204,7 @@ class postgre:
             Returns the value of the slurs column in the users table.
             '''
             query = f"SELECT slurs FROM users WHERE user_id=%s"
-            result = postgre.query(query, args=(self.user_id,))
+            result = postgre.query(query, args=(self.user_id,), do_commit=False)
             return result[0][0]
         
         def set_slurs(self, value: float) -> None:
@@ -207,7 +239,7 @@ class postgre:
             Returns the value of the swearing column in the users table.
             '''
             query = f"SELECT swearing FROM users WHERE user_id=%s"
-            result = postgre.query(query, args=(self.user_id,))
+            result = postgre.query(query, args=(self.user_id,), do_commit=False)
             return result[0][0]
         
         def set_swearing(self, value: float) -> None:
@@ -388,7 +420,7 @@ class memory:
         def get_antislur_enabled(self):
             return self.mem_method.get_antislur_enabled()
         def set_antislur_enabled(self, value: bool):
-            self.mem_method.set_antislur_enabled(value)
+            return self.mem_method.set_antislur_enabled(value)
 
     class user_reputation:
         def __init__(self, user_id) -> None:

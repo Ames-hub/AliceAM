@@ -1,5 +1,8 @@
+import hikari, multiprocessing, os
+# Makes sure that needed directories exist
+os.makedirs('logs', exist_ok=True)
+# Import after so that the needed directories exist before neccesary files are interacted with
 from library.jmod import jmod
-import hikari, multiprocessing, re
 
 colours = {
     'red': '\033[31m',
@@ -114,17 +117,10 @@ def introduction():
 if jmod.getvalue(json_dir='memory/settings.json',key='first_start') == True:
     introduction()
 
-from library.pylog import logman
 if __name__ == '__main__':
     # Importing down here so that the introduction() function can look better.
     from library.botapp import bot
     from library.storage import db_tables, do_use_postgre
-
-    logman_thread = multiprocessing.Process(
-        target=logman,
-        args=()
-    )
-    logman_thread.start()
 
     if do_use_postgre():
         db_tables.ensure_exists()
@@ -133,6 +129,10 @@ if __name__ == '__main__':
     async def on_ready(event: hikari.ShardReadyEvent) -> None:
         print(f"Logged in as {event.my_user.username}")
 
-    bot.load_extensions_from("cogs/automod/")
+    bot.load_extensions_from("cogs/automod/antislur/")
+    bot.load_extensions_from("cogs/automod/antiswear/")
+    bot.load_extensions_from("cogs/automod/passive/")
+    if len(os.listdir("cogs/plugins/")) != 0: # Without this line, it will except since there are no plugins.
+        bot.load_extensions_from("cogs/plugins/")
 
     bot.run()

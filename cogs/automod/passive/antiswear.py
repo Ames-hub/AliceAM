@@ -1,11 +1,10 @@
 from library.botapp import bot, permissions
 from library.variables import  swears
 from library.automod import automod
-from library.pylog import pylog
+from library.variables import logging
+from library.storage import memory
 import lightbulb
 import hikari
-
-pylogger = pylog()
 
 # Same colour as the embed box
 colourless = bot.d['colourless']
@@ -13,6 +12,10 @@ colourless = bot.d['colourless']
 class antiswear(lightbulb.Plugin):
     @bot.listen()
     async def listener(event: hikari.GuildMessageCreateEvent) -> bool:
+        guild_enabled = memory.guild(event.guild_id).get_antiswear_enabled()
+        if guild_enabled is False:
+            return False
+
         if automod.checkers.heuristical(event.message.content, swears) == True:
             is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id) # TODO: switch this to use cache
         else:
