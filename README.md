@@ -37,7 +37,7 @@ Enter the following details, changing the placeholders with what they should be.
 TOKEN=The token you entered beforehand
 DB_HOST=YOUR_HOST_MACHINES_IP_OR_DOMAIN
 DB_PORT=YOUR_HOSTS_PORT
-DB_USER=YOUR_DB_USERNAME
+DB_USERNAME=YOUR_DB_USERNAME
 DB_PASSWORD=YOUR_SECURE_PASSWORD
 ```
 It is recommended you don't use the root account for the DB username, but I won't stop you.
