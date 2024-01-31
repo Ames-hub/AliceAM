@@ -1,7 +1,6 @@
 from library.botapp import bot, permissions
 from library.variables import  swears
 from library.automod import automod
-from library.variables import logging
 from library.storage import memory
 import lightbulb
 import hikari
@@ -12,34 +11,25 @@ colourless = bot.d['colourless']
 class antiswear(lightbulb.Plugin):
     @bot.listen()
     async def listener(event: hikari.GuildMessageCreateEvent) -> bool:
+        if event.author.is_bot:
+            return False
         guild_enabled = memory.guild(event.guild_id).get_antiswear_enabled()
         if guild_enabled is False:
             return False
 
-        if automod.checkers.heuristical(event.message.content, swears) == True:
-            is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id) # TODO: switch this to use cache
+        if automod.text_checkers.heuristical(event.message.content, swears) == True:
+            is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id)
         else:
             return False
+        
+        server_msg = automod.gen_user_warning_embed('AntiSwear Check Failed', is_admin=is_admin)
 
         if is_admin:
-            server_msg = (
-                "You are an administrator on this server.\n"
-                "Start acting like it and hold yourself accountable."
-            )
+            await event.author.send(server_msg)
         else:
-            server_msg = "Check failed. Such an action is forbidden on this server.\nWe have taken ethics action."
+            await event.message.respond(server_msg)
 
-        await event.author.send(
-            hikari.Embed(
-                title="AntiSwear Check Failed",
-                description=server_msg,
-                color=colourless
-            )
-        )
-
-        punish_success = await antiswear.punish(event)
-        if punish_success is True and is_admin is False:
-            await event.author.send(automod.gen_warning_embed("AntiSwear Check Failed"))
+        await antiswear.punish(event)
 
     async def punish(event: hikari.GuildMessageCreateEvent):
         # Punish the member for saying a Swear

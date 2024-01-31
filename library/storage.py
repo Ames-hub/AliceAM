@@ -1,6 +1,7 @@
 import psycopg2
 import dotenv
 import os
+import random
 from .jmod import jmod
 from .data_tables import data_tables
 from library.variables import logging
@@ -44,6 +45,7 @@ class connmanager:
         '''
         try:
             self.latest_conn: psycopg2.extensions.connection = psycopg2.connect(**db_conn_details)
+            # Don't have it return True here, no clue why but that makes fetch return True instead of the connection
         except psycopg2.OperationalError as err:
             print("Could not connect to database. I suggest you check your credentials and ensure the Schema/Database exists with a valid host and port.")
             logging.error("Couldn't connect to DB. Check your credentials and ensure the Schema/Database exists with a valid host and port.")
@@ -51,69 +53,99 @@ class connmanager:
 
 connman = connmanager()
 
+class down_queue:
+    '''
+    A queue for storing queries that couldn't be executed due to a connection error.
+    '''
+    def __init__(self) -> None:
+        self.queue = []
+
+    def add(self, query: str, args: tuple) -> None:
+        '''
+        Adds a query to the queue.
+        '''
+        Query_ID = random.randint(1,999999999)
+        self.queue.append((query, args, Query_ID))
+
+    def remove(self, Query_ID) -> None:
+        '''
+        Removes a query from the queue.
+        '''
+        for query, args, ID in self.queue:
+            if ID == Query_ID:
+                self.queue.remove((query, args, ID))
+
+    def run(self) -> None:
+        '''
+        Executes all queries in the queue.
+        Intended to be ran as a task
+        '''
+        for query, args, ID in self.queue:
+            success = postgre.query(query, args, do_commit=True, return_success_only=True)
+            if success:
+                self.remove(ID)
+
+downqueue = down_queue()
+
 class db_tables:
     def ensure_exists():
         conn = None
-        try:
-            # Fetch a database connection
-            conn = connman.fetch()
-            cur = conn.cursor()
+        # Fetch a database connection
+        conn = connman.fetch()
+        cur = conn.cursor()
 
-            # Using this dict, it formats the SQL query to create the tables if they don't exist
-            table_dict = {
-                # Table name
-                'guilds': {
-                    # Column name: Column properties
-                    'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
-                    'antiswear_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
-                    'antislur_enabled': 'BOOLEAN NOT NULL DEFAULT TRUE',
-                },
-                'users': {
-                    'user_id': 'BIGINT NOT NULL PRIMARY KEY',
-                    'rep_slurs': 'FLOAT NOT NULL DEFAULT 0.0',
-                    'rep_swearing': 'FLOAT NOT NULL DEFAULT 0.0',
-                },
-            }
+        # Using this dict, it formats the SQL query to create the tables if they don't exist
+        table_dict = {
+            # Table name
+            'guilds': {
+                # Column name: Column properties
+                'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
+                'antiswear_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                'antislur_enabled': 'BOOLEAN NOT NULL DEFAULT TRUE',
+                'antispam_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
+            },
+            'users': {
+                'user_id': 'BIGINT NOT NULL PRIMARY KEY',
+                'rep_slurs': 'FLOAT NOT NULL DEFAULT 0.0',
+                'rep_swearing': 'FLOAT NOT NULL DEFAULT 0.0',
+            },
+        }
 
-            for table_name, columns in table_dict.items():
-                # Check if the table exists
-                cur.execute('''
-                    SELECT EXISTS (
-                        SELECT 1
-                        FROM information_schema.tables
-                        WHERE table_name = %s
-                    );
-                ''', (table_name,))
-                table_exist = cur.fetchone()[0]
+        for table_name, columns in table_dict.items():
+            # Check if the table exists
+            cur.execute('''
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_name = %s
+                );
+            ''', (table_name,))
+            table_exist = cur.fetchone()[0]
 
-                # If the table exists, check and update columns
-                if table_exist:
-                    for column_name, column_properties in columns.items():
-                        # Check if the column exists
-                        cur.execute('''
-                            SELECT EXISTS (
-                                SELECT 1
-                                FROM information_schema.columns
-                                WHERE table_name = %s AND column_name = %s
-                            );
-                        ''', (table_name, column_name))
-                        column_exist = cur.fetchone()[0]
+            # If the table exists, check and update columns
+            if table_exist:
+                for column_name, column_properties in columns.items():
+                    # Check if the column exists
+                    cur.execute('''
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = %s AND column_name = %s
+                        );
+                    ''', (table_name, column_name))
+                    column_exist = cur.fetchone()[0]
 
-                        # If the column doesn't exist, add it
-                        if not column_exist:
-                            cur.execute(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_properties};')
+                    # If the column doesn't exist, add it
+                    if not column_exist:
+                        cur.execute(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_properties};')
 
-                # If the table doesn't exist, create it with columns
-                else:
-                    columns_str = ', '.join([f'{column_name} {column_properties}' for column_name, column_properties in columns.items()])
-                    cur.execute(f'CREATE TABLE {table_name} ({columns_str});')
+            # If the table doesn't exist, create it with columns
+            else:
+                columns_str = ', '.join([f'{column_name} {column_properties}' for column_name, column_properties in columns.items()])
+                cur.execute(f'CREATE TABLE {table_name} ({columns_str});')
 
-            # Commit the changes
-            conn.commit()
-
-        except Exception as e:
-            # Handle exceptions, log or print the error
-            print(f"An error occurred: {e}")
+        # Commit the changes
+        conn.commit()
 
     def ensure_guild(guild_id):
         '''
@@ -138,26 +170,44 @@ class db_tables:
             conn.commit()
 
 class postgre:
-    def query(query: str, args: tuple, do_commit:bool=True) -> list:
+    def query(query: str, args: tuple, do_commit:bool=True, return_success_only=False) -> list:
         '''
         Executes a query and returns the result.
         uses fetchall() to return all rows.
+
+        If data is empty, returns True.
+        If the query was unsuccessful, returns False.
         '''
         conn: psycopg2.extensions.connection = connman.fetch()
         cur = conn.cursor()
 
-        cur.execute(query, args)
+        if return_success_only:
+            try:
+                cur.execute(query, args)
+                if do_commit:
+                    conn.commit()
+                return True
+            except:
+                return False
+        else:
+            cur.execute(query, args)
+
         if do_commit:
             conn.commit()
         try:
             data = cur.fetchall()
-            if data == [] or type(data) in [list, tuple]:
-                return True # If the query was successful but there was no data, return True
-            else:
-                return data
+            # print(f"\n{query}\n{data}\n") # Debug code for checking queries
+            return data
         except psycopg2.ProgrammingError:
             return []
-
+        except psycopg2.OperationalError as err:
+            logging.error(f"Couldn't connect to DB. Check your credentials and ensure the Schema/Database exists with a valid host and port. {err}")
+            if 'connect' in str(err): # Filters out the error message to see if it's a connection error
+                # Add the query to the queue to be executed later when the connection is re-established
+                downqueue.add(query, args)
+                
+                # Renegotiate the connection
+                connman.renew()
     class guild:
         def __init__(self, guild_id: int) -> None:
             self.guild_id = guild_id
@@ -171,13 +221,12 @@ class postgre:
             query = f"SELECT antiswear_enabled FROM guilds WHERE guild_id=%s"
             result = postgre.query(query, args=(self.guild_id,), do_commit=False)
             return result[0][0]
-        
         def set_antiswear_enabled(self, value: bool) -> None:
             '''
             Sets the value of the antiswear_enabled column in the guilds table.
             '''
             query = f"UPDATE guilds SET antiswear_enabled=%s WHERE guild_id=%s"
-            postgre.query(query, args=(value, self.guild_id))
+            return postgre.query(query, args=(value, self.guild_id), return_success_only=True)
 
         def get_antislur_enabled(self) -> bool:
             '''
@@ -186,14 +235,26 @@ class postgre:
             query = f"SELECT antislur_enabled FROM guilds WHERE guild_id=%s"
             result = postgre.query(query, args=(self.guild_id,), do_commit=False)
             return result[0][0]
-        
         def set_antislur_enabled(self, value: bool) -> None:
             '''
             Sets the value of the antislur_enabled column in the guilds table.
             '''
             query = f"UPDATE guilds SET antislur_enabled=%s WHERE guild_id=%s"
-            postgre.query(query, args=(value, self.guild_id))
-            
+            return postgre.query(query, args=(value, self.guild_id), return_success_only=True)
+
+        def get_antispam_enabled(self) -> bool:
+            '''
+            Returns the value of the antispam_enabled column in the guilds table.
+            '''
+            query = f"SELECT antispam_enabled FROM guilds WHERE guild_id=%s"
+            result = postgre.query(query, args=(self.guild_id,), do_commit=False)
+            return result[0][0]
+        def set_antispam_enabled(self, value: bool) -> None:
+            '''
+            Sets the value of the antispam_enabled column in the guilds table.
+            '''
+            query = f"UPDATE guilds SET antispam_enabled=%s WHERE guild_id=%s"
+            return postgre.query(query, args=(value, self.guild_id), return_success_only=True)
 
     class user_reputation:
         def __init__(self, user_id: int) -> None:
@@ -212,7 +273,7 @@ class postgre:
             Sets the value of the slurs column in the users table.
             '''
             query = f"UPDATE users SET slurs=%s WHERE user_id=%s"
-            postgre.query(query, args=(value, self.user_id))
+            return postgre.query(query, args=(value, self.user_id))
 
         def addTo_slurs(self, value: float) -> None:
             '''
@@ -222,7 +283,7 @@ class postgre:
             result = postgre.query(query, args=(self.user_id,))
             amount = result[0][0]
             query = f"UPDATE users SET slurs=%s WHERE user_id=%s"
-            postgre.query(query, args=(amount + value, self.user_id))
+            return postgre.query(query, args=(amount + value, self.user_id))
 
         def subtractFrom_slurs(self, value: float) -> None:
             '''
@@ -232,7 +293,7 @@ class postgre:
             result = postgre.query(query, args=(self.user_id,))
             amount = result[0][0]
             query = f"UPDATE users SET slurs=%s WHERE user_id=%s"
-            postgre.query(query, args=(amount - value, self.user_id))
+            return postgre.query(query, args=(amount - value, self.user_id))
 
         def get_swearing(self) -> float:
             '''
@@ -247,7 +308,7 @@ class postgre:
             Sets the value of the swearing column in the users table.
             '''
             query = f"UPDATE users SET swearing=%s WHERE user_id=%s"
-            postgre.query(query, args=(value, self.user_id))
+            return postgre.query(query, args=(value, self.user_id))
 
         def addTo_swearing(self, value: float) -> None:
             '''
@@ -257,7 +318,7 @@ class postgre:
             result = postgre.query(query, args=(self.user_id,))
             amount = result[0][0]
             query = f"UPDATE users SET swearing=%s WHERE user_id=%s"
-            postgre.query(query, args=(amount + value, self.user_id))
+            return postgre.query(query, args=(amount + value, self.user_id))
 
         def subtractFrom_swearing(self, value: float) -> None:
             '''
@@ -267,7 +328,7 @@ class postgre:
             result = postgre.query(query, args=(self.user_id,))
             amount = result[0][0]
             query = f"UPDATE users SET swearing=%s WHERE user_id=%s"
-            postgre.query(query, args=(amount - value, self.user_id))
+            return postgre.query(query, args=(amount - value, self.user_id))
 
 class json_storage:
     def get_guild_dir(guid, make_dirs:bool=True):
@@ -299,6 +360,8 @@ class json_storage:
                 value=value,
                 json_dir=json_storage.get_guild_dir(self.guild_id),
             )
+            return True
+
         def get_antislur_enabled(self):
             return jmod.getvalue(
                 key='antislur.enabled',
@@ -312,6 +375,22 @@ class json_storage:
                 value=value,
                 json_dir=json_storage.get_guild_dir(self.guild_id),
             )
+            return True
+
+        def get_antispam_enabled(self):
+            return jmod.getvalue(
+                key='antispam.enabled',
+                dt=data_tables.GUILD_DT,
+                json_dir=json_storage.get_guild_dir(self.guild_id),
+            )
+        def set_antispam_enabled(self, value: bool):
+            jmod.setvalue(
+                key='antispam.enabled',
+                dt=data_tables.GUILD_DT,
+                value=value,
+                json_dir=json_storage.get_guild_dir(self.guild_id),
+            )
+            return True
 
     class user_reputation:
         def __init__(self, user_id:int) -> None:
@@ -415,12 +494,17 @@ class memory:
         def get_antiswear_enabled(self):
             return self.mem_method.get_antiswear_enabled()
         def set_antiswear_enabled(self, value: bool):
-            self.mem_method.set_antiswear_enabled(value)
+            return self.mem_method.set_antiswear_enabled(value)
         
         def get_antislur_enabled(self):
             return self.mem_method.get_antislur_enabled()
         def set_antislur_enabled(self, value: bool):
             return self.mem_method.set_antislur_enabled(value)
+
+        def get_antispam_enabled(self):
+            return self.mem_method.get_antispam_enabled()
+        def set_antispam_enabled(self, value: bool):
+            return self.mem_method.set_antispam_enabled(value)
 
     class user_reputation:
         def __init__(self, user_id) -> None:

@@ -1,4 +1,4 @@
-import hikari, multiprocessing, os
+import hikari, multiprocessing, os, lightbulb
 # Makes sure that needed directories exist
 os.makedirs('logs', exist_ok=True)
 # Import after so that the needed directories exist before neccesary files are interacted with
@@ -119,8 +119,38 @@ if jmod.getvalue(json_dir='memory/settings.json',key='first_start') == True:
 
 if __name__ == '__main__':
     # Importing down here so that the introduction() function can look better.
-    from library.botapp import bot
     from library.storage import db_tables, do_use_postgre
+    from library.botapp import bot
+    @bot.listen(lightbulb.CommandErrorEvent)
+    async def on_error(event: lightbulb.CommandErrorEvent) -> None:
+        if isinstance(event.exception, lightbulb.MissingRequiredPermission):
+            await event.context.respond("You don't have the required permissions to run this command.")
+        elif isinstance(event.exception, lightbulb.MissingRequiredRole):
+            await event.context.respond("You don't have the required role to run this command.")
+        elif isinstance(event.exception, lightbulb.BotMissingRequiredPermission):
+            await event.context.respond("I don't have the required permissions to run this command!")   
+        elif isinstance(event.exception, lightbulb.errors.OnlyInDM):
+            await event.context.respond("This command can only be run in DMs.")
+        elif isinstance(event.exception, lightbulb.errors.OnlyInGuild):
+            await event.context.respond("This command can only be run in a guild.")
+        elif isinstance(event.exception, lightbulb.errors.NSFWChannelOnly):
+            await event.context.respond("This command can only be run in a NSFW channel.")
+        elif isinstance(event.exception, lightbulb.errors.NotOwner):
+            await event.context.respond("You are not the owner of this bot.")
+        elif isinstance(event.exception, lightbulb.errors.CommandIsOnCooldown):
+            await event.context.respond(f"You have {event.exception.retry_after:.2f} seconds left before you can run this command again.")
+        elif isinstance(event.exception, lightbulb.errors.BotOnly):
+            await event.context.respond("This command can only be run by bots.")
+        elif isinstance(event.exception, lightbulb.errors.NotEnoughArguments):
+            await event.context.respond("We're missing some needed information to run this command!")
+        elif isinstance(event.exception, lightbulb.errors.InvalidArgument):
+            await event.context.respond("Invalid information to run this command!")
+        elif isinstance(event.exception, lightbulb.errors.MissingRequiredAttachmentArgument):
+            await event.context.respond("You need to attach a file to run this command.")
+        elif isinstance(event.exception, lightbulb.errors.CommandNotFound):
+            pass # Ignore this error, since it is not a problem.
+        else:
+            raise event.exception
 
     if do_use_postgre():
         db_tables.ensure_exists()
@@ -131,8 +161,9 @@ if __name__ == '__main__':
 
     bot.load_extensions_from("cogs/automod/antislur/")
     bot.load_extensions_from("cogs/automod/antiswear/")
+    bot.load_extensions_from("cogs/automod/antispam/")
     bot.load_extensions_from("cogs/automod/passive/")
+    bot.load_extensions_from("cogs/tasks_dir/")
     if len(os.listdir("cogs/plugins/")) != 0: # Without this line, it will except since there are no plugins.
-        bot.load_extensions_from("cogs/plugins/")
-
+        bot.load_extensions_from("cogs/plugins/") # This is for easy-implementation of your own plugins.
     bot.run()

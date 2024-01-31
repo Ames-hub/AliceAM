@@ -1,11 +1,11 @@
 # Automoderation functions.py
 from .botapp import bot
 from .storage import memory
-import lightbulb, hikari, datetime, os
+import lightbulb, hikari, datetime, os, time
 colourless = bot.d['colourless']
 
 class automod:
-    class checkers:
+    class text_checkers:
         def heuristical(content:str, blacklist:list[str]) -> bool:
             '''
             Checks if a message contains a forbidden word. Returns True if it does, False if it doesn't.
@@ -13,7 +13,7 @@ class automod:
             if content == None or content == "" or blacklist == []:
                 return False
 
-            components = automod.checkers.components(content, blacklist, False)
+            components = automod.text_checkers.components(content, blacklist, False)
 
             if components.substring_check() is True:
                 return True
@@ -127,27 +127,65 @@ class automod:
                         if word == content:
                             return True
 
-    def gen_warning_embed(warning_title):
-        ethics_msg = [
-            "If this is a false positive/Mistake, please contact the server staff.",
-            "Otherwise, Please be mindful that these are real people you are talking to and not just text on a screen. ",
-            "\n*They deserve the respect you would like to be given yourself.* So please respect them enough to follow rules."
-        ]
+    class AntiSpamSystem:
+        def __init__(self, guid, messages_allowed=2, time_window_seconds=5, punishment_cooldown_seconds=10):
+            self.messages_allowed = messages_allowed
+            self.time_window_seconds = time_window_seconds
+            self.punishment_cooldown_seconds = punishment_cooldown_seconds
+            self.user_timestamps = {}
+            self.punished_users = {}
 
-        return (hikari.Embed(
-                title=warning_title,
-                description="Automod has detected you broke the rules.",
-                color=colourless,
-                timestamp=datetime.datetime.now().astimezone()
+        def is_allowed(self, user_id):
+            current_time = time.time()
+
+            # Check if the user is currently on cooldown
+            # Don't think this works. Experimental. Its meant to prevent "Stop spamming!" Spam, but tbh you'd be muted if this was in prod so its probs fine
+            if user_id in self.punished_users and current_time - self.punished_users[user_id] < self.punishment_cooldown_seconds:
+                return False
+
+            # Initialize timestamps for a new user if not present
+            if user_id not in self.user_timestamps:
+                self.user_timestamps[user_id] = []
+
+            # Remove timestamps older than the allowed time window
+            self.user_timestamps[user_id] = [timestamp for timestamp in self.user_timestamps[user_id] if timestamp >= current_time - self.time_window_seconds]
+
+            # Check if the number of messages sent by the user in the allowed time window is less than the limit
+            if len(self.user_timestamps[user_id]) < self.messages_allowed:
+                self.user_timestamps[user_id].append(current_time)
+                return True
+            else:
+                # Punish the user and record the punishment time
+                self.punished_users[user_id] = current_time
+                return False
+
+    def gen_user_warning_embed(warning_title, is_admin=False):
+        if not is_admin:
+            return (hikari.Embed(
+                    title=warning_title,
+                    description="Automod has detected you broke the rules.",
+                    color=colourless,
+                    timestamp=datetime.datetime.now().astimezone()
+                )
+                .set_thumbnail(
+                    os.path.abspath('library/Hammer.png')
+                )
             )
-            .add_field(
-                name="Ethics of You",
-                value=" ".join(ethics_msg)
+        else:
+            server_msg = (
+                "You are an administrator on this server.\n"
+                "Start acting like it and hold yourself accountable."
             )
-            .set_thumbnail(
-                os.path.abspath('library/Hammer.png')
+            return (hikari.Embed(
+                    title=warning_title,
+                    description=server_msg,
+                    color=colourless,
+                    timestamp=datetime.datetime.now().astimezone()
+                )
+                .set_thumbnail(
+                    os.path.abspath('library/Hammer.png')
+                )
             )
-        )
 
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(lightbulb.Plugin(__name__))

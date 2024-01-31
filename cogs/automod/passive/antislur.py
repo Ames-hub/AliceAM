@@ -11,34 +11,27 @@ colourless = bot.d['colourless']
 class antislur(lightbulb.Plugin):
     @bot.listen()
     async def listener(event: hikari.GuildMessageCreateEvent) -> bool:
+        if event.author.is_bot:
+            return False
         guild_enabled = memory.guild(event.guild_id).get_antislur_enabled()
         if guild_enabled is False:
             return False
         
-        if automod.checkers.heuristical(event.message.content, slurs) == True:
+        if automod.text_checkers.heuristical(event.message.content, slurs) == True:
             is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id) # TODO: switch this to use cache
         else:
             return False
 
-        if is_admin:
-            server_msg = (
-                "You are an administrator on this server.\n"
-                "Start acting like it and hold yourself accountable."
-            )
-        else:
-            server_msg = "Check failed. Such an action is forbidden on this server.\nWe have taken ethics action."
+        server_msg = automod.gen_user_warning_embed('AntiSlur Check Failed', is_admin=is_admin)
 
-        await event.author.send(
-            hikari.Embed(
-                title="AntiSlur Check Failed",
-                description=server_msg,
-                color=colourless
-            )
-        )
+        if is_admin:
+            await event.author.send(server_msg)
+        else:
+            await event.message.respond(server_msg)
 
         punish_success = await antislur.punish(event)
         if punish_success is True and is_admin is False:
-            await event.author.send(automod.gen_warning_embed("AntiSlur Check Failed"))
+            await event.author.send(automod.gen_user_warning_embed("AntiSlur Check Failed"))
 
     async def punish(event: hikari.GuildMessageCreateEvent):
         # Punish the member for saying a slur

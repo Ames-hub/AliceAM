@@ -3,6 +3,8 @@ import hikari
 import dotenv
 import os
 
+from lightbulb.ext import tasks
+
 dotenv.load_dotenv("secrets.env")
 INTENTS = hikari.Intents.ALL
 
@@ -17,7 +19,10 @@ bot = lightbulb.BotApp(
     prefix="//",
     intents=INTENTS
 )
+tasks.load(bot)
 bot.d['colourless'] = hikari.Colour(0x2b2d31)
+bot.d['spam_logs'] = {}
+bot.d['spammers_punished'] = {}
 
 class permissions:
     async def check(
@@ -37,6 +42,8 @@ class permissions:
             return
         ```
         '''
+        # Prevents circular imports if imported here
+        from library.cache import cache
 
         if guild != None:
             guid = guild.id
@@ -47,32 +54,39 @@ class permissions:
         if guid == None:
             raise ValueError("No guild ID was provided. Please provide a guild ID.")
 
-        try:
-            checked_member = await bot.rest.fetch_member(hikari.Snowflake(guid), hikari.Snowflake(uuid))
-        except:
-            return False
+        cached_perms = cache.get_permissions(uuid, guid)
+        if cached_perms == -1:
+            try:
+                checked_member = await bot.rest.fetch_member(hikari.Snowflake(guid), hikari.Snowflake(uuid))
+            except:
+                return False
 
-        try:
-            checked_member = checked_member.get_top_role()
-        except:
-            return False
+            try:
+                checked_member = checked_member.get_top_role()
+                permissions = checked_member.permissions
+                cache.cache_perms(uuid, guid, permissions)
+            except:
+                return False
+        else:
+            permissions = cached_perms
 
         if type(permission) != list:
-            allowed = permission in checked_member.permissions
+            allowed = permission in permissions
         else:
             for perm in permission:
-                allowed = perm in checked_member.permissions
+                allowed = perm in permissions
                 if allowed == True:
                     break
         # If the member is the owner of the guild, they are allowed to do anything
         try:
             if allowed == False:
 
-                allowed = hikari.Permissions.ADMINISTRATOR in checked_member.permissions
+                allowed = hikari.Permissions.ADMINISTRATOR in permissions
 
                 if allowed != False:
                     return allowed # If the member is an admin, return True
 
+                # If the member is the owner of the guild, they are allowed to do anything
                 if guid != None:
                     guild = await bot.rest.fetch_guild(hikari.Snowflake(guid))
                     if str(guild.owner_id) in str(member.id) or str(guild.owner_id) in str(uuid):

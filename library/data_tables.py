@@ -6,6 +6,10 @@ class data_tables:
         'antislur': {
             'enabled': True,
         },
+        'antispam': {
+            'enabled': False,
+            'mps_limit': 5, # Messages per second limit
+        },
     }
 
     USER_DT = {
