@@ -8,12 +8,14 @@ import lightbulb, hikari, logging
 @lightbulb.option(
     name='enabled',
     description='Enable (True) or disable (False) the antiswear system.',
-    required=True, # This is an example of an option you could add.
+    required=True,
     type=hikari.OptionType.BOOLEAN
 )
 @lightbulb.add_cooldown(bucket=lightbulb.buckets.GuildBucket, length=10, uses=1)
+@lightbulb.add_checks(
+    lightbulb.has_guild_permissions(hikari.Permissions.ADMINISTRATOR)
+    )
 @lightbulb.command(name="toggle", description="Turn off or On the antiswear system.")
-# use "slash sub command" opposed to "slash command" if it is in a group
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def antiswear_toggle_command(ctx: lightbulb.SlashContext) -> None:
     enabled:bool = ctx.options.enabled
