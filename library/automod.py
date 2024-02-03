@@ -127,38 +127,6 @@ class automod:
                         if word == content:
                             return True
 
-    class AntiSpamSystem:
-        def __init__(self, guid, messages_allowed=2, time_window_seconds=5, punishment_cooldown_seconds=10):
-            self.messages_allowed = messages_allowed
-            self.time_window_seconds = time_window_seconds
-            self.punishment_cooldown_seconds = punishment_cooldown_seconds
-            self.user_timestamps = {}
-            self.punished_users = {}
-
-        def is_allowed(self, user_id):
-            current_time = time.time()
-
-            # Check if the user is currently on cooldown
-            # Don't think this works. Experimental. Its meant to prevent "Stop spamming!" Spam, but tbh you'd be muted if this was in prod so its probs fine
-            if user_id in self.punished_users and current_time - self.punished_users[user_id] < self.punishment_cooldown_seconds:
-                return False
-
-            # Initialize timestamps for a new user if not present
-            if user_id not in self.user_timestamps:
-                self.user_timestamps[user_id] = []
-
-            # Remove timestamps older than the allowed time window
-            self.user_timestamps[user_id] = [timestamp for timestamp in self.user_timestamps[user_id] if timestamp >= current_time - self.time_window_seconds]
-
-            # Check if the number of messages sent by the user in the allowed time window is less than the limit
-            if len(self.user_timestamps[user_id]) < self.messages_allowed:
-                self.user_timestamps[user_id].append(current_time)
-                return True
-            else:
-                # Punish the user and record the punishment time
-                self.punished_users[user_id] = current_time
-                return False
-
     def gen_user_warning_embed(warning_title, is_admin=False):
         if not is_admin:
             return (hikari.Embed(

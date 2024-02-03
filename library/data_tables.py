@@ -1,4 +1,7 @@
 class data_tables:
+    '''
+    A class of dictionaries to be put as templates in Json files for the bot to use.
+    '''
     GUILD_DT = {
         'antiswear': {
             'enabled': False,

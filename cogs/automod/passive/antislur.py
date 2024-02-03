@@ -18,7 +18,7 @@ class antislur(lightbulb.Plugin):
             return False
         
         if automod.text_checkers.heuristical(event.message.content, slurs) == True:
-            is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id) # TODO: switch this to use cache
+            is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id)
         else:
             return False
 

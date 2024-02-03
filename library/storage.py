@@ -64,7 +64,7 @@ class down_queue:
         '''
         Adds a query to the queue.
         '''
-        Query_ID = random.randint(1,999999999)
+        Query_ID = random.randint(1,99999999999999999999)
         self.queue.append((query, args, Query_ID))
 
     def remove(self, Query_ID) -> None:
@@ -73,6 +73,7 @@ class down_queue:
         '''
         for query, args, ID in self.queue:
             if ID == Query_ID:
+                # Note, this is not calling itself, it's calling the method of the type class 'list'
                 self.queue.remove((query, args, ID))
 
     def run(self) -> None:
@@ -262,72 +263,72 @@ class postgre:
 
         def get_slurs(self) -> float:
             '''
-            Returns the value of the slurs column in the users table.
+            Returns the value of the rep_slurs column in the users table.
             '''
-            query = f"SELECT slurs FROM users WHERE user_id=%s"
+            query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,), do_commit=False)
             return result[0][0]
         
         def set_slurs(self, value: float) -> None:
             '''
-            Sets the value of the slurs column in the users table.
+            Sets the value of the rep_slurs column in the users table.
             '''
-            query = f"UPDATE users SET slurs=%s WHERE user_id=%s"
+            query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
             return postgre.query(query, args=(value, self.user_id))
 
         def addTo_slurs(self, value: float) -> None:
             '''
-            Adds to the value of the slurs column in the users table.
+            Adds to the value of the rep_slurs column in the users table.
             '''
-            query = f"SELECT slurs FROM users WHERE user_id=%s"
+            query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,))
             amount = result[0][0]
-            query = f"UPDATE users SET slurs=%s WHERE user_id=%s"
+            query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
             return postgre.query(query, args=(amount + value, self.user_id))
 
         def subtractFrom_slurs(self, value: float) -> None:
             '''
-            Subtracts from the value of the slurs column in the users table.
+            Subtracts from the value of the rep_slurs column in the users table.
             '''
-            query = f"SELECT slurs FROM users WHERE user_id=%s"
+            query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,))
             amount = result[0][0]
-            query = f"UPDATE users SET slurs=%s WHERE user_id=%s"
+            query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
             return postgre.query(query, args=(amount - value, self.user_id))
 
         def get_swearing(self) -> float:
             '''
-            Returns the value of the swearing column in the users table.
+            Returns the value of the rep_swearing column in the users table.
             '''
-            query = f"SELECT swearing FROM users WHERE user_id=%s"
+            query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,), do_commit=False)
             return result[0][0]
         
         def set_swearing(self, value: float) -> None:
             '''
-            Sets the value of the swearing column in the users table.
+            Sets the value of the rep_swearing column in the users table.
             '''
-            query = f"UPDATE users SET swearing=%s WHERE user_id=%s"
+            query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
             return postgre.query(query, args=(value, self.user_id))
 
         def addTo_swearing(self, value: float) -> None:
             '''
-            Adds to the value of the swearing column in the users table.
+            Adds to the value of the rep_swearing column in the users table.
             '''
-            query = f"SELECT swearing FROM users WHERE user_id=%s"
+            query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,))
             amount = result[0][0]
-            query = f"UPDATE users SET swearing=%s WHERE user_id=%s"
+            query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
             return postgre.query(query, args=(amount + value, self.user_id))
 
         def subtractFrom_swearing(self, value: float) -> None:
             '''
-            Subtracts from the value of the swearing column in the users table.
+            Subtracts from the value of the rep_swearing column in the users table.
             '''
-            query = f"SELECT swearing FROM users WHERE user_id=%s"
+            query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,))
             amount = result[0][0]
-            query = f"UPDATE users SET swearing=%s WHERE user_id=%s"
+            query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
             return postgre.query(query, args=(amount - value, self.user_id))
 
 class json_storage:
@@ -422,7 +423,7 @@ class json_storage:
                 value=amount + value,
                 json_dir=json_storage.get_users_dir(self.user_id),
             )
-
+         
         def subtractFrom_slurs(self, value: float) -> None:
             amount = jmod.getvalue(
                 key='reputation.slurs',
