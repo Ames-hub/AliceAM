@@ -1,4 +1,4 @@
-import multiprocessing, os, hikari, sys
+import multiprocessing, os, hikari, sys, json
 from getpass import getpass
 # Makes sure that needed directories exist
 os.makedirs('logs', exist_ok=True)
@@ -18,9 +18,13 @@ colours = {
 def introduction():
     while True:
         print(f"{colours['green']}Welcome to the setup wizard!{colours['reset']}")
-        print(f"{colours['yellow']}Please enter your bot token.{colours['reset']}")
+        print(f"{colours['yellow']}Please enter your bot token. (input hidden){colours['reset']}")
         token = getpass("> ")
-        break
+        print(f"Does your token end with {token[-5:]}? (y/n)")
+        if input("> ").lower() == "y":
+            break
+        else:
+            continue
 
     while True:
         print(f"{colours['green']}Please enter your prefix. (Default: !!){colours['reset']}")
@@ -30,14 +34,14 @@ def introduction():
         print("Is this correct? (y/n)")
         print(f"Prefix: {prefix}")
         if input("> ").lower() == "y":
-            jmod.setvalue(json_dir='memory/settings.json',key='prefix',value=prefix)
+            jmod.setvalue(json_dir='settings.json',key='prefix',value=prefix)
             break
         else:
             continue
 
     while True:
         print(f'{colours["green"]}Do you want to use {colours["purple"]}PostgreSQL{colours["green"]} or do you want to use {colours["purple"]}Json files{colours["green"]} for long-term memory?')
-        print('PostgreSQL is recommended for larger server that cant lose data. but Json files are easier to setup.')
+        print('PostgreSQL is recommended for larger server that cant lose data. but Json files are easier to setup and are recommended for small servers.')
         print(f'{colours["yellow"]}Option 1. PostgreSQL')
         print(f'Option 2. Json files{colours["reset"]}')
 
@@ -46,7 +50,7 @@ def introduction():
         print('Is this correct? (y/n)')
         print(f'Use PostgreSQL: {do_postgre}')
         if input('> ').lower() == 'y':
-            jmod.setvalue('use_postgre', 'memory/settings.json', do_postgre)
+            jmod.setvalue('use_postgre', 'settings.json', do_postgre)
             break
         else:
             continue
@@ -73,10 +77,10 @@ def introduction():
                 continue
 
         while True:
-            print(f'{colours["green"]}Please enter your PostgreSQL database password.{colours["reset"]}')
-            db_password = input('> ')
+            print(f'{colours["green"]}Please enter your PostgreSQL database password. (input hidden){colours["reset"]}')
+            db_password = getpass('> ')
             print('Is this correct? (y/n)')
-            print(f'Database password: {db_password}')
+            print(f'Does your DB password end with: {db_password[-5:]}')
             if input('> ').lower() == 'y':
                 break
             else:
@@ -110,11 +114,14 @@ def introduction():
         f.write(f'DB_USERNAME={db_username}\n')
         f.write(f'DB_PASSWORD={db_password}')
 
-    jmod.setvalue(json_dir='memory/settings.json',key='first_start',value=False)
+    jmod.setvalue(json_dir='settings.json',key='first_start',value=False)
 
 if __name__ == '__main__':
     from library.data_tables import data_tables
-    if jmod.getvalue(json_dir='memory/settings.json',key='first_start', dt=data_tables.SETTINGS_DT) == True:
+    with open('settings.json', 'w') as f:
+        json.dump(data_tables.SETTINGS_DT, f, indent=4, separators=(',', ': '))
+
+    if jmod.getvalue(json_dir='settings.json',key='first_start') == True:
         introduction()
 
     # Importing down here so that the introduction() function can look better.
@@ -149,5 +156,9 @@ if __name__ == '__main__':
     async def on_ready(event: hikari.events.ShardReadyEvent):
         print(f"{colours['green']}Bot is ready!{colours['reset']}")
         print(f"{colours['yellow']}Logged in as: {event.my_user.username}{colours['reset']}")
+
+    # My own integration to report to pterodactyl panel that the bot is ready. Recommended to remove if you're not using pterodactyl.
+    if os.environ.get('IS_PTERODACTYL', None) == 'yes':
+        print('pterodactyl:ok')
 
     bot.run()

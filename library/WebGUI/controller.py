@@ -51,7 +51,7 @@ def generate_ssl(certfile_dir, keyfile_dir, hostname="localhost"):
             ))
 
 class gui:
-    def run(PublicMode=False, port=8080, allow_dir_listing=False):
+    def run(PublicMode=False, port=7575, allow_dir_listing=False):
         debug = False
         if PublicMode:
             os.makedirs('library/ssl', exist_ok=True)

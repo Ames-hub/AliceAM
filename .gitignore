@@ -3,4 +3,5 @@ __pycache__
 *.log
 *.env
 memory
+settings.json
 library/ssl
