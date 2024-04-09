@@ -244,63 +244,16 @@ class automod:
 
     def gen_user_warning_embed(warning_title, user_id, check_result:list, is_admin=False):
         assert check_result is not None, "Check result must not be None"
-        if not is_admin:
-            if check_result is None:
-                return (hikari.Embed(
-                        title=warning_title,
-                        description="Automod has detected you broke the rules.",
-                        color=colourless,
-                        timestamp=datetime.datetime.now().astimezone()
-                    )
-                    .set_thumbnail(
-                        os.path.abspath('library/Hammer.png')
-                    )
-                )
-            else:
-                check_name = check_result[len(check_result)-1]
-                word_found = check_result[1][1]
 
-                desc = f"Automod has detected <@!{user_id}> broke the rules."
-                if 'substring' in check_name:
-                    index_start = check_result[1][2][0]
-                    index_end = check_result[1][2][1]
+        admin_warn_msg = (
+            "You are an administrator on this server.\n"
+            "Start acting like it and hold yourself accountable."
+        )
 
-                    desc = f"<@{user_id}> You cannot say that here.\n"
-                    # Word found will be content if its substring check
-                    # Highlights the blacklisted word in the content with underlines and italics
-                    start_at = index_start - 10
-                    end_at = index_end + 10
-                    # Ensures there are no index errors
-                    if start_at < 0:
-                        start_at = 0
-                    if end_at > len(word_found):
-                        end_at = len(word_found)
-
-                    desc += f"\"{word_found[:index_start]}*__{word_found[start_at+3:end_at-3]}__*{word_found[index_end:]}\"\n"
-                    # Censors the desc
-                    desc = automod.censor_text(desc)
-
-                return (hikari.Embed(
-                        title=warning_title,
-                        description=desc,
-                        color=colourless,
-                        timestamp=datetime.datetime.now().astimezone()
-                    )
-                    .set_thumbnail(
-                        os.path.abspath('library/Hammer.png')
-                    )
-                    .set_footer(
-                        text=check_name # Check name will always be the last item in the list
-                    )
-                )
-        else:
-            server_msg = (
-                "You are an administrator on this server.\n"
-                "Start acting like it and hold yourself accountable."
-            )
+        if check_result is None:
             return (hikari.Embed(
                     title=warning_title,
-                    description=server_msg,
+                    description="Automod has detected you broke the rules.",
                     color=colourless,
                     timestamp=datetime.datetime.now().astimezone()
                 )
@@ -308,6 +261,49 @@ class automod:
                     os.path.abspath('library/Hammer.png')
                 )
             )
+        else:
+            check_name = check_result[len(check_result)-1]
+            word_found = check_result[1][1]
+
+            desc = f"Automod has detected <@!{user_id}> broke the rules."
+            if 'substring' in check_name:
+                index_start = check_result[1][2][0]
+                index_end = check_result[1][2][1]
+
+                desc = f"<@{user_id}> You cannot say that here.\n"
+                # Word found will be content if its substring check
+                # Highlights the blacklisted word in the content with underlines and italics
+                start_at = index_start - 10
+                end_at = index_end + 10
+                # Ensures there are no index errors
+                if start_at < 0:
+                    start_at = 0
+                if end_at > len(word_found):
+                    end_at = len(word_found)
+
+                desc += f"\"{word_found[:index_start]}*__{word_found[start_at+3:end_at-3]}__*{word_found[index_end:]}\"\n"
+                # Censors the desc
+                desc = automod.censor_text(desc)
+
+            embed = (hikari.Embed(
+                    title=warning_title,
+                    description=desc,
+                    color=colourless,
+                    timestamp=datetime.datetime.now().astimezone()
+                )
+                .set_thumbnail(
+                    os.path.abspath('library/Hammer.png')
+                )
+                .set_footer(
+                    text=check_name # Check name will always be the last item in the list
+                )
+            )
+            if is_admin:
+                embed.add_field(
+                    name="Upholding the rules",
+                    value=admin_warn_msg,
+                    inline=False
+                )
 
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(lightbulb.Plugin(__name__))
