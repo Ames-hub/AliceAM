@@ -10,7 +10,7 @@ It was built with the idea of having a main "Alice" [Which anyone at all can inv
 But also a bot, which anyone can easily selfhost and add their own plugins to without much difficulty or even modify the bot's code entirely.
 
 # Features
-Alice AM has a variety of Qualities and Features, some of which include
+AliceAM has a variety of Qualities and Features, some of which include
 - AutoModeration
 - A Webgui (WIP)
 - An API (WIP)
