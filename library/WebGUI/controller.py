@@ -80,8 +80,6 @@ class gui:
                         self.send_error(403, "Forbidden", "Localhost is not allowed. Use domain to access instead")
                         return
 
-                # TODO: Warden will be replaced with UserMan Website access permissions later.
-
                 # Handle directory listing.
                 if not allow_dir_listing:
                     if self.path.endswith("/"):

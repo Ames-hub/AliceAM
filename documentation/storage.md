@@ -1,0 +1,15 @@
+# Library/Storage.py
+This file handles the storage and retrieval of data. It supports both PostgreSQL and JSON-based storage. The storage method used is determined by a setting in a JSON file.  The connmanager class manages the connection to the PostgreSQL database. The down_queue class is a queue for storing queries that couldn't be executed due to a connection error.  The db_tables class ensures the existence of necessary tables and columns in the PostgreSQL database. The postgre class is used to execute queries on the PostgreSQL database.  The json_storage class handles the storage and retrieval of data in JSON files.  The memory class is a wrapper for the postgre and json_storage classes. It automatically switches between the two based on the value of a setting in a JSON file.<br>
+<br>No file except Library/Storage should ever interact with data storage. All interactions with the DB and Json files should be done through functions in this file.
+# Data Management
+The bot maintains a reputation system for users, tracking their usage of slurs and swearing. This data can be stored in either a PostgreSQL database or JSON files, depending on the configuration. The bot also keeps track of whether anti-spam, anti-swear, and anti-slur features are enabled for each guild.
+# Reputation System
+The reputation system in this project is designed to track user behavior in terms of their usage of slurs and swearing. It is implemented in both PostgreSQL and JSON-based storage, depending on the configuration.
+
+The reputation system is managed by the `user_reputation` class in both `postgre` and `json_storage` classes. The reputation is stored as a floating-point number, with a range from -10.0 to 10.0.
+
+For the PostgreSQL implementation, the `user_reputation` class has methods to get and set the reputation values for slurs (`get_slurs`, `set_slurs`) and swearing (`get_swearing`, `set_swearing`). It also provides methods to add to or subtract from these values (`addTo_slurs`, `subtractFrom_slurs`, `addTo_swearing`, `subtractFrom_swearing`). The `get_overall` method calculates an overall reputation value based on the average of the slur and swearing reputations.
+
+For the JSON-based implementation, the `user_reputation` class has similar methods for getting, setting, adding to, and subtracting from the reputation values. The JSON file storing the reputation data is located in a directory specific to the user, and the reputation values are stored under the 'reputation' key.
+
+The `memory` class acts as a wrapper for the `postgre` and `json_storage` classes. It automatically switches between the two based on the value of a setting in a JSON file. The `memory.user_reputation` class provides the same methods as the `postgre.user_reputation` and `json_storage.user_reputation` classes, and calls the appropriate methods based on the storage method in use.

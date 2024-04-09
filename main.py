@@ -1,5 +1,8 @@
 import multiprocessing, os, hikari, sys, json
 from getpass import getpass
+
+import psycopg2
+
 # Makes sure that needed directories exist
 os.makedirs('logs', exist_ok=True)
 # Import after so that the needed directories exist before neccesary files are interacted with
@@ -56,72 +59,97 @@ def introduction():
             continue
     
     if do_postgre:
-        while True:
-            print(f'{colours["green"]}Please enter the DB Name you want us to use.{colours["reset"]}')
-            db_database = input('> ')
-            print('Is this correct? (y/n)')
-            print(f'Database: {db_database}')
-            if input('> ').lower() == 'y':
-                break
-            else:
+        while True: # Retry logic if any of the details are wrong
+            while True:
+                print(f'{colours["green"]}Please enter your PostgreSQL database host.{colours["reset"]}')
+                db_host = input('> ')
+                print('Is this correct? (y/n)')
+                print(f'Database host: {db_host}')
+                if input('> ').lower() == 'y':
+                    break
+                else:
+                    continue
+
+            while True:
+                print(f'{colours["green"]}Please enter your PostgreSQL database port.{colours["reset"]}')
+                db_port = input('> ')
+                print('Is this correct? (y/n)')
+                print(f'Database port: {db_port}')
+                if input('> ').lower() == 'y':
+                    break
+                else:
+                    continue
+
+            while True:
+                print(f'{colours["green"]}Please enter your PostgreSQL database username.{colours["reset"]}')
+                db_username = input('> ')
+                if db_username == 'postgre' or db_username == 'postgres' or db_username == 'root':
+                    print(f'{colours["red"]}You are using the root username. This has severe security risks.')
+                    print(f'Waive dangersand continue regardless? (y/n){colours["reset"]}')
+                    if input('> ').lower() == 'y':
+                        break
+                    else:
+                        continue
+                print('Is this correct? (y/n)')
+                print(f'Database username: {db_username}')
+                if input('> ').lower() == 'y':
+                    break
+                else:
+                    continue
+
+            while True:
+                print(f'{colours["green"]}Please enter your PostgreSQL database password. (input hidden){colours["reset"]}')
+                db_password = getpass('> ')
+                print('Is this correct? (y/n)')
+                print(f'Does your DB password end with: {db_password[-5:]}')
+                if input('> ').lower() == 'y':
+                    break
+                else:
+                    continue
+
+            while True:
+                print(f'{colours["green"]}Please enter the Database you want us to use.{colours["reset"]}')
+                db_database = input('> ')
+                print('Is this correct? (y/n)')
+                print(f'Database: {db_database}')
+                if input('> ').lower() == 'y':
+                    break
+                else:
+                    continue
+
+            # Tests the connection
+            try:
+                psycopg2.connect(
+                    host=db_host,
+                    port=db_port,
+                    user=db_username,
+                    password=db_password,
+                    database=db_database
+                )
+            except psycopg2.OperationalError as err:
+                print(f'{colours["red"]}Couldn\'t connect to database. Did you enter the right details?{colours["reset"]}')
+                print(f'{colours["red"]}Error: {err}{colours["reset"]}')
+                print("We are sending you back to retry.")
                 continue
 
-        while True:
-            print(f'{colours["green"]}Please enter your PostgreSQL database username.{colours["reset"]}')
-            db_username = input('> ')
-            print('Is this correct? (y/n)')
-            print(f'Database username: {db_username}')
-            if input('> ').lower() == 'y':
-                break
-            else:
-                continue
-
-        while True:
-            print(f'{colours["green"]}Please enter your PostgreSQL database password. (input hidden){colours["reset"]}')
-            db_password = getpass('> ')
-            print('Is this correct? (y/n)')
-            print(f'Does your DB password end with: {db_password[-5:]}')
-            if input('> ').lower() == 'y':
-                break
-            else:
-                continue
-
-        while True:
-            print(f'{colours["green"]}Please enter your PostgreSQL database host.{colours["reset"]}')
-            db_host = input('> ')
-            print('Is this correct? (y/n)')
-            print(f'Database host: {db_host}')
-            if input('> ').lower() == 'y':
-                break
-            else:
-                continue
-
-        while True:
-            print(f'{colours["green"]}Please enter your PostgreSQL database port.{colours["reset"]}')
-            db_port = input('> ')
-            print('Is this correct? (y/n)')
-            print(f'Database port: {db_port}')
-            if input('> ').lower() == 'y':
-                break
-            else:
-                continue
-
-    with open('secrets.env', 'a+') as f:
-        f.write(f'TOKEN={token}\n')
-        f.write(f'DB_HOST={db_host}\n')
-        f.write(f'DB_PORT={db_port}\n')
-        f.write(f'DB_DATABASE={db_database}\n')
-        f.write(f'DB_USERNAME={db_username}\n')
-        f.write(f'DB_PASSWORD={db_password}')
+            with open('secrets.env', 'a+') as secrets_file:
+                secrets_file.write(f'TOKEN={token}\n')
+                secrets_file.write(f'DB_HOST={db_host}\n')
+                secrets_file.write(f'DB_PORT={db_port}\n')
+                secrets_file.write(f'DB_DATABASE={db_database}\n')
+                secrets_file.write(f'DB_USERNAME={db_username}\n')
+                secrets_file.write(f'DB_PASSWORD={db_password}')
+            break
 
     jmod.setvalue(json_dir='settings.json',key='first_start',value=False)
 
 if __name__ == '__main__':
     from library.data_tables import data_tables
-    with open('settings.json', 'w') as f:
-        json.dump(data_tables.SETTINGS_DT, f, indent=4, separators=(',', ': '))
+    if not os.path.exists('settings.json'):
+        with open('settings.json', 'w') as f:
+            json.dump(data_tables.SETTINGS_DT, f, indent=4, separators=(',', ': '))
 
-    if jmod.getvalue(json_dir='settings.json',key='first_start') == True:
+    if bool(jmod.getvalue(json_dir='settings.json', key='first_start')):
         introduction()
 
     # Importing down here so that the introduction() function can look better.
@@ -146,7 +174,7 @@ if __name__ == '__main__':
         args=()
     )
     WEBGUI_THREAD.start()
-    
+
     is_linux = sys.platform == 'linux'
     os.system('clear' if is_linux else 'cls')
     logging.info("Bot is starting...")
@@ -157,8 +185,9 @@ if __name__ == '__main__':
         print(f"{colours['green']}Bot is ready!{colours['reset']}")
         print(f"{colours['yellow']}Logged in as: {event.my_user.username}{colours['reset']}")
 
-    # My own integration to report to pterodactyl panel that the bot is ready. Recommended to remove if you're not using pterodactyl.
-    if os.environ.get('IS_PTERODACTYL', None) == 'yes':
-        print('pterodactyl:ok')
-
-    bot.run()
+    try:
+        bot.run()
+    except hikari.errors.UnauthorizedError:
+        logging.error("Invalid token provided. Please check your token in secrets.env (or env variables and try again.")
+        print(f"{colours['red']}Invalid token provided. Please check your token in secrets.env (or env variables and try again.{colours['reset']}")
+        exit(1)

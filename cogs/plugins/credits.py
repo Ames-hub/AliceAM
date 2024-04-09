@@ -26,11 +26,11 @@ async def credit_command(ctx: lightbulb.SlashContext) -> None:
     embed = (
         hikari.Embed(
               title="Credits",
-              description="Here are the people who helped make me.",
+              description="Here are the people who helped make me!",
               color=bot.d['colourless'],
         )
         .set_footer(
-            text='https://github.com/Ames-hub/AliceAM',
+            text='https://github.com/Ames-hub/AliceAM', # add a new line and link to your own repository if desired
         )
         .add_field(
             name="Original Developer",
@@ -39,10 +39,10 @@ async def credit_command(ctx: lightbulb.SlashContext) -> None:
         # .add_field(
         #     name="Developer",
         #     value="**YOUR NAME HERE**"
-        # ) If you make your own version of the bot, you can add yourself here.
+        # ) # If you make your own version of the bot, you can add yourself here.
     )
     
-    ctx.respond(embed)
+    await ctx.respond(embed)
 
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(lightbulb.Plugin(__name__))

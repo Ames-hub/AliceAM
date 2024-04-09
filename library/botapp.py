@@ -9,8 +9,9 @@ dotenv.load_dotenv("secrets.env")
 INTENTS = hikari.Intents.ALL
 
 TOKEN = os.environ.get("TOKEN")
-if TOKEN == None:
+if TOKEN is None:
     from main import introduction
+
     introduction()
     print("Please restart the bot.")
     exit()
@@ -24,12 +25,13 @@ bot.d['colourless'] = hikari.Colour(0x2b2d31)
 bot.d['spam_logs'] = {}
 bot.d['spammers_punished'] = {}
 
+
 class permissions:
     async def check(
-            permission, 
-            member: hikari.Member = None, guild: hikari.Guild = None, # Method 1
-            uuid=str or None, guid=str or None # Method 2
-            ):
+            permission,
+            member: hikari.Member = None, guild: hikari.Guild = None,  # Method 1
+            uuid=str or None, guid=str or None  # Method 2
+    ):
 
         '''
         A Permission checker. this will return if the user in the guild is allowed to issue a certain command or not
@@ -44,14 +46,16 @@ class permissions:
         '''
         # Prevents circular imports if imported here
         from library.cache import cache
+        # Assume for safety
+        allowed = False
 
-        if guild != None:
+        if guild is not None:
             guid = guild.id
-        if member != None:
+        if member is not None:
             uuid = member.id
             guid = member.guild_id
 
-        if guid == None:
+        if guid is None:
             raise ValueError("No guild ID was provided. Please provide a guild ID.")
 
         cached_perms = cache.get_permissions(uuid, guid)
@@ -70,24 +74,29 @@ class permissions:
         else:
             permissions = cached_perms
 
-        if type(permission) != list:
+        if not isinstance(permission, list):
+            # If `permission` is not a list, it means it's a single permission.
+            # In this case, check if this single permission is in the `permissions`.
+            # The result (True or False) is stored in the `allowed` variable.
             allowed = permission in permissions
         else:
             for perm in permission:
+                # If `permission` is a list, it means there are multiple permissions to check for.
+                # Iterate over each permission in the `permission` list.
                 allowed = perm in permissions
-                if allowed == True:
+                if allowed:
                     break
         # If the member is the owner of the guild, they are allowed to do anything
         try:
-            if allowed == False:
+            if not allowed:
 
                 allowed = hikari.Permissions.ADMINISTRATOR in permissions
 
-                if allowed != False:
-                    return allowed # If the member is an admin, return True
+                if allowed is not False:
+                    return allowed  # If the member is an admin, return True
 
                 # If the member is the owner of the guild, they are allowed to do anything
-                if guid != None:
+                if guid is not None:
                     guild = await bot.rest.fetch_guild(hikari.Snowflake(guid))
                     if str(guild.owner_id) in str(member.id) or str(guild.owner_id) in str(uuid):
                         allowed = True
@@ -97,5 +106,5 @@ class permissions:
         try:
             return allowed
         except:
-            return False # Return false on any exception. This is JUST in case. It likely won't except
+            return False  # Return false on any exception. This is JUST in case. It likely won't except
             # but it's better to be safe than sorry.

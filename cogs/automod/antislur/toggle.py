@@ -1,5 +1,4 @@
 from library.storage import memory
-from library.botapp import bot
 from .group import antislur_group
 import lightbulb, hikari, logging
 

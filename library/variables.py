@@ -12,19 +12,19 @@ logging.basicConfig(
 )
 
 slurs = [
-    "debugslur9291293949390213924382398283754675986238645789236458723",
+    "debugslur9291293949390213924",
     "nigger",
     "nigga",
     "negro",
     "fag",
     "faggot",
     "tranny",
-    "Baiano",
 ]
 
 swears = [
     "shit",
     "fuck",
+    "fucking",
     "cunt",
     "cunny",
     "pussy",
@@ -35,8 +35,8 @@ swears = [
     "dick",
     "crap",
     "piss",
-    "wang",
     "tits",
+    "boobs",
     "rape",
     "cock",
     "horny",
@@ -47,14 +47,14 @@ swears = [
 ]
 
 domain_endings = [
-    ".com", 
-    ".net", 
-    ".org", 
-    ".edu", 
-    ".uk", 
-    ".au", 
-    ".ca", 
-    ".cn", 
+    ".com",
+    ".net",
+    ".org",
+    ".edu",
+    ".uk",
+    ".au",
+    ".ca",
+    ".cn",
     ".de",
     ".info",
     ".biz",
@@ -69,7 +69,7 @@ domain_endings = [
     ".ws",
     ".travel",
     ".io",
-    ".tk", 
+    ".tk",
     ".gq",
     ".ml"
 ]

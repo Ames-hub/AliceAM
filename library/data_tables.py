@@ -1,3 +1,4 @@
+import datetime
 class data_tables:
     '''
     A class of dictionaries to be put as templates in Json files for the bot to use.
@@ -22,6 +23,7 @@ class data_tables:
             'swearing': 0.0,
             'slurs': 0.0,
         },
+        'last_nullification_time': datetime.datetime.now(),
     }
 
     # For localsetting.json

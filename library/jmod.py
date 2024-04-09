@@ -1,6 +1,8 @@
 import os, json, inspect
 from library.variables import logging
 
+# Deals with pycharms bs. File works fine.
+# noinspection PyUnresolvedReferences,PyMethodFirstArgAssignment
 class jmod:
     def getvalue(key, json_dir, default=None, dt=None):
         """

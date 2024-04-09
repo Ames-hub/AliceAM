@@ -1,12 +1,16 @@
+import datetime
+
 import psycopg2
 import dotenv
 import os
+import json
 import random
 from .jmod import jmod
 from .data_tables import data_tables
 from library.variables import logging
 
 dotenv.load_dotenv('secrets.env')
+connhint = psycopg2.extensions.connection
 db_conn_details = {
     'host': str(os.getenv('DB_HOST')),
     'port': int(os.getenv('DB_PORT')),
@@ -17,7 +21,7 @@ db_conn_details = {
 
 def do_use_postgre():
     return jmod.getvalue(
-        json_dir='memory/settings.json',
+        json_dir='settings.json',
         key='use_postgre',
         dt=data_tables.SETTINGS_DT,
     )
@@ -29,7 +33,7 @@ class connmanager:
         else:
             self.latest_conn = None
 
-    def fetch(self) -> psycopg2.extensions.connection:
+    def fetch(self) -> connhint:
         '''
         Fetch the latest Connection variable to execute queries to
         '''
@@ -44,7 +48,7 @@ class connmanager:
         (Replaces old latest.conn)
         '''
         try:
-            self.latest_conn: psycopg2.extensions.connection = psycopg2.connect(**db_conn_details)
+            self.latest_conn: connhint = psycopg2.connect(**db_conn_details)
             # Don't have it return True here, no clue why but that makes fetch return True instead of the connection
         except psycopg2.OperationalError as err:
             print("Could not connect to database. I suggest you check your credentials and ensure the Schema/Database exists with a valid host and port.")
@@ -109,6 +113,9 @@ class db_tables:
                 'user_id': 'BIGINT NOT NULL PRIMARY KEY',
                 'rep_slurs': 'FLOAT NOT NULL DEFAULT 0.0',
                 'rep_swearing': 'FLOAT NOT NULL DEFAULT 0.0',
+                # The below is for the task 'reputation_nuller'. View the file for more data
+                # But this is neccesary when accounting for reboots of the bot.
+                'nullification_time': 'TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP',
             },
         }
 
@@ -148,6 +155,39 @@ class db_tables:
         # Commit the changes
         conn.commit()
 
+    def ensure_user(user_id) -> bool:
+        '''
+        Used to make sure a user exists before trying to interact with them in the DB.
+        Checks if the user exists, and if they don't, adds them.
+
+        returns True if the user exists, False if they don't
+
+        args:
+            user_id: int - The user's discord ID
+        '''
+        conn = connman.fetch()
+        cur = conn.cursor()
+
+        # Check if the user exists
+        cur.execute('''
+            SELECT EXISTS (
+                SELECT 1
+                FROM users
+                WHERE user_id = %s
+            );
+        ''', (user_id,))
+        user_exist = cur.fetchone()[0]
+
+        # If the user doesn't exist, add them
+        if not user_exist:
+            cur.execute('INSERT INTO users (user_id) VALUES (%s);', (user_id,))
+            conn.commit()
+            # Return false if they didn't exist
+            return False
+        else:
+            # Return true if they did exist
+            return True
+
     def ensure_guild(guild_id):
         '''
         Ensures the guild is in the database's guilds table.
@@ -179,7 +219,7 @@ class postgre:
         If data is empty, returns True.
         If the query was unsuccessful, returns False.
         '''
-        conn: psycopg2.extensions.connection = connman.fetch()
+        conn: connhint = connman.fetch()
         cur = conn.cursor()
 
         if return_success_only:
@@ -209,6 +249,7 @@ class postgre:
                 
                 # Renegotiate the connection
                 connman.renew()
+
     class guild:
         def __init__(self, guild_id: int) -> None:
             self.guild_id = guild_id
@@ -222,6 +263,7 @@ class postgre:
             query = f"SELECT antiswear_enabled FROM guilds WHERE guild_id=%s"
             result = postgre.query(query, args=(self.guild_id,), do_commit=False)
             return result[0][0]
+
         def set_antiswear_enabled(self, value: bool) -> None:
             '''
             Sets the value of the antiswear_enabled column in the guilds table.
@@ -236,6 +278,7 @@ class postgre:
             query = f"SELECT antislur_enabled FROM guilds WHERE guild_id=%s"
             result = postgre.query(query, args=(self.guild_id,), do_commit=False)
             return result[0][0]
+
         def set_antislur_enabled(self, value: bool) -> None:
             '''
             Sets the value of the antislur_enabled column in the guilds table.
@@ -250,6 +293,7 @@ class postgre:
             query = f"SELECT antispam_enabled FROM guilds WHERE guild_id=%s"
             result = postgre.query(query, args=(self.guild_id,), do_commit=False)
             return result[0][0]
+
         def set_antispam_enabled(self, value: bool) -> None:
             '''
             Sets the value of the antispam_enabled column in the guilds table.
@@ -259,7 +303,85 @@ class postgre:
 
     class user_reputation:
         def __init__(self, user_id: int) -> None:
+            db_tables.ensure_user(user_id) # Makes sure the user is in the database
             self.user_id = user_id
+
+        def get_reputation(self) -> dict:
+            '''
+            Returns the value of all reputation columns in the users table.
+            Formats in a dictionary.
+
+            You can expect the result to look like this:
+            {
+                'slurs': -10~10,
+                'swearing': -10~10,
+                (etc. dict keys are same name for each DB column name without the 'rep_' prefix)
+            }
+            '''
+            # Get all column names that start with 'rep_'
+            query = "SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name LIKE 'rep_%'"
+            columns = postgre.query(query, args=None, do_commit=False)
+
+            # Initialize a dictionary to store the results
+            reps_dict = {}
+            # If columns exist, fetch the contents of each column
+            if columns:
+                for column in columns:
+                    column_name = column[0]
+                    query = f"SELECT {column_name} FROM users WHERE user_id = %s"
+                    result = postgre.query(query, args=(self.user_id,), do_commit=False)
+                    # Store the column contents in the reps result dictionary
+                    reps_dict[column_name] = result[0][0]
+            else:
+                raise EnvironmentError("No reputation columns found in the users table. Is the table missing columns?")
+
+            return_dict = {}
+            # Takes each key and removes the suffix 'rep_' to it. Then adds it to the return_dict
+            # This is to keep the data consistent with the json storage and make it look cleaner on use.
+            for key in reps_dict.keys():
+                return_dict[key[4:]] = reps_dict[key]
+            return return_dict
+
+        def get_last_nullification_time(self) -> float:
+            '''
+            Returns the value of the rep_nullification column in the users table.
+            '''
+            query = f"SELECT nullification_time FROM users WHERE user_id=%s"
+            result = postgre.query(query, args=(self.user_id,), do_commit=False)
+            return result[0][0]
+
+        def set_last_nullification_time(self, timedate: float) -> None:
+            '''
+            Sets the value of the rep_nullification column in the users table.
+            '''
+            query = f"UPDATE users SET nullification_time=%s WHERE user_id=%s"
+            return postgre.query(query, args=(timedate, self.user_id), do_commit=True)
+
+        def get_overall(self) -> dict:
+            # Get all column names that start with 'rep_'
+            query = "SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name LIKE 'rep_%'"
+            columns = postgre.query(query, args=None, do_commit=False)
+
+            # Initialize a dictionary to store the results
+            reps_list = []
+
+            # If columns exist, fetch the contents of each column
+            if columns:
+                for column in columns:
+                    column_name = column[0]
+                    query = f"SELECT {column_name} FROM users WHERE user_id = %s"
+                    result = postgre.query(query, args=(self.user_id,), do_commit=False)
+                    # Store the column contents in the reps result list
+                    if result:
+                        reps_list.append(result[0][0])
+                    else:
+                        # appends starting data if the user has no data in the column
+                        reps_list.append(0.0)
+            else:
+                logging.warning("No reputation columns found in the users table. Is the table missing columns?")
+
+            # Gets an overall of a value from -10.0 to +10.0 based on how often each item in rep_list is closer to -10 or +10
+            return round(sum(reps_list) / len(reps_list), 2)
 
         def get_slurs(self) -> float:
             '''
@@ -267,12 +389,21 @@ class postgre:
             '''
             query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,), do_commit=False)
-            return result[0][0]
+            if result:
+                return result[0][0]
+            else:
+                return 0.0
         
         def set_slurs(self, value: float) -> None:
             '''
             Sets the value of the rep_slurs column in the users table.
             '''
+            # If the value is less than -10.0, set it to -10.0. Max value is 10.0, min value is -10.0
+            if value >= 10.0:
+                value = 10.0
+            elif value <= -10.0:
+                value = -10.0
+
             query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
             return postgre.query(query, args=(value, self.user_id))
 
@@ -282,9 +413,20 @@ class postgre:
             '''
             query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,))
-            amount = result[0][0]
+            if result:
+                amount = result[0][0]
+            else:
+                amount = 0.0
+
+            # If the addition would make the value more than 10.0, set it to 10.0. Max value is 10.0, min value is -10.0
+            value = amount + value
+            if value >= 10.0:
+                value = 10.0
+            elif value <= -10.0:
+                value = -10.0
+
             query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
-            return postgre.query(query, args=(amount + value, self.user_id))
+            return postgre.query(query, args=(value, self.user_id))
 
         def subtractFrom_slurs(self, value: float) -> None:
             '''
@@ -292,9 +434,20 @@ class postgre:
             '''
             query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,))
-            amount = result[0][0]
+            if result:
+                amount = result[0][0]
+            else:
+                amount = 0.0
+
+            # If the subtraction would make the value less than -10.0, set it to -10.0. Max value is 10.0, min value is -10.0
+            value = amount - value
+            if value >= 10.0:
+                value = 10.0
+            elif value <= -10.0:
+                value = -10.0
+
             query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
-            return postgre.query(query, args=(amount - value, self.user_id))
+            return postgre.query(query, args=(value, self.user_id), do_commit=True)
 
         def get_swearing(self) -> float:
             '''
@@ -302,12 +455,21 @@ class postgre:
             '''
             query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,), do_commit=False)
-            return result[0][0]
+            if result:
+                return result[0][0]
+            else:
+                return 0.0
         
         def set_swearing(self, value: float) -> None:
             '''
             Sets the value of the rep_swearing column in the users table.
             '''
+            # If the value is less than -10.0, set it to -10.0. Max value is 10.0
+            if value >= 10.0:
+                value = 10.0
+            elif value <= -10.0:
+                value = -10.0
+
             query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
             return postgre.query(query, args=(value, self.user_id))
 
@@ -317,9 +479,20 @@ class postgre:
             '''
             query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,))
-            amount = result[0][0]
+            if result:
+                amount = result[0][0]
+            else:
+                amount = 0.0
+
+            # If the addition would make the value more than 10.0, set it to 10.0. Max value is 10.0
+            value = amount + value
+            if value >= 10.0:
+                value = 10.0
+            elif value <= -10.0:
+                value = -10.0
+
             query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
-            return postgre.query(query, args=(amount + value, self.user_id))
+            return postgre.query(query, args=(value, self.user_id))
 
         def subtractFrom_swearing(self, value: float) -> None:
             '''
@@ -327,9 +500,20 @@ class postgre:
             '''
             query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
             result = postgre.query(query, args=(self.user_id,))
-            amount = result[0][0]
+            if result:
+                amount = result[0][0]
+            else:
+                amount = 0.0
+
+            # If the subtraction would make the value less than -10.0, set it to -10.0. Min value is -10.0
+            value = amount - value
+            if value >= 10.0:
+                value = 10.0
+            elif value <= -10.0:
+                value = -10.0
+
             query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
-            return postgre.query(query, args=(amount - value, self.user_id))
+            return postgre.query(query, args=(value, self.user_id))
 
 class json_storage:
     def get_guild_dir(guid, make_dirs:bool=True):
@@ -339,7 +523,7 @@ class json_storage:
         return path
     
     def get_users_dir(uuid, make_dirs:bool=True):
-        path = os.path.abspath(f'memory/uuid/{uuid}/')
+        path = os.path.abspath(f'memory/users/{uuid}/')
         if make_dirs:
             os.makedirs(path, exist_ok=True)
         return path
@@ -396,94 +580,185 @@ class json_storage:
     class user_reputation:
         def __init__(self, user_id:int) -> None:
             self.user_id = user_id
+            self.user_rep_dir = json_storage.get_users_dir(user_id) + '/reputation.json'
+
+        def get_reputation(self) -> dict:
+            '''
+            Returns the value of all reputation keys in the users json file.
+            '''
+            data = jmod.getvalue(
+                key='reputation',
+                dt=data_tables.USER_DT,
+                json_dir=self.user_rep_dir,
+            )
+            return data
+
+        def get_last_nullification_time(self) -> datetime.datetime:
+            return jmod.getvalue(
+                key='last_nullification_time',
+                dt=data_tables.USER_DT,
+                json_dir=self.user_rep_dir,
+            )
+
+        def set_last_nullification_time(self, timedate: datetime.datetime) -> None:
+            jmod.setvalue(
+                key='last_nullification_time',
+                dt=data_tables.USER_DT,
+                value=str(timedate),
+                json_dir=self.user_rep_dir,
+            )
+
+        def get_overall(self):
+            # Loads the json file, finds all the keys that start with 'reputation.' and sums them up
+            rep = 0.0
+            if not os.path.exists(self.user_rep_dir):
+                os.makedirs(os.path.dirname(self.user_rep_dir), exist_ok=True)
+                with open(self.user_rep_dir, 'w') as f:
+                    json.dump(data_tables.USER_DT, f, indent=4, separators=(',', ': '))
+
+            with open(self.user_rep_dir, 'r+') as f:
+                data = dict(json.load(f)['reputation'])
+            keys = data.keys()
+
+            rep_list = []
+            for key in keys:
+                rep_list.append(data[key])
+
+            # Gets an overall of a value from -10.0 to +10.0 based on how often each item in rep_list is closer to -10 or +10
+            return round(sum(rep_list) / len(rep_list), 2)
 
         def get_slurs(self) -> float:
             return jmod.getvalue(
                 key='reputation.slurs',
                 dt=data_tables.USER_DT,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                json_dir=self.user_rep_dir,
             )
         def set_slurs(self, value: float) -> None:
+            if value >= 10.0:
+                value = 10.0
+            elif value <= -10.0:
+                value = -10.0
+
             jmod.setvalue(
                 key='reputation.slurs',
                 dt=data_tables.USER_DT,
                 value=value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                json_dir=self.user_rep_dir,
             )
         def addTo_slurs(self, value: float) -> None:
             amount = jmod.getvalue(
                 key='reputation.slurs',
                 dt=data_tables.USER_DT,
-                value=value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                json_dir=self.user_rep_dir,
             )
+
+            # If the value is less than -10.0, set it to -10.0. Max value is 10.0
+            rep_value = amount + value
+            if rep_value >= 10.0:
+                rep_value = 10.0
+
             jmod.setvalue(
                 key='reputation.slurs',
                 dt=data_tables.USER_DT,
-                value=amount + value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                value=rep_value,
+                json_dir=self.user_rep_dir,
             )
          
         def subtractFrom_slurs(self, value: float) -> None:
             amount = jmod.getvalue(
                 key='reputation.slurs',
                 dt=data_tables.USER_DT,
-                value=value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                json_dir=self.user_rep_dir,
             )
+
+            # If the subtraction would make the value less than -10.0, set it to -10.0. Min value is -10.0
+            rep_value = amount - value
+            if rep_value <= -10.0:
+                rep_value = -10.0
+
             jmod.setvalue(
                 key='reputation.slurs',
                 dt=data_tables.USER_DT,
-                value=amount - value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                value=rep_value,
+                json_dir=self.user_rep_dir,
             )
 
         def get_swearing(self) -> float:
             return jmod.getvalue(
                 key='reputation.swearing',
                 dt=data_tables.USER_DT,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                json_dir=self.user_rep_dir,
             )
         def set_swearing(self, value: float) -> None:
+            if value >= 10.0:
+                value = 10.0
+            elif value <= -10.0:
+                value = -10.0
+
             jmod.setvalue(
                 key='reputation.swearing',
                 dt=data_tables.USER_DT,
                 value=value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                json_dir=self.user_rep_dir,
             )
         def addTo_swearing(self, value: float) -> None:
             amount = jmod.getvalue(
                 key='reputation.swearing',
                 dt=data_tables.USER_DT,
-                value=value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                json_dir=self.user_rep_dir,
             )
+
+            rep_value = amount + value
+            if rep_value >= 10.0:
+                rep_value = 10.0
+
             jmod.setvalue(
                 key='reputation.swearing',
                 dt=data_tables.USER_DT,
-                value=amount + value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                value=rep_value,
+                json_dir=self.user_rep_dir,
             )
 
         def subtractFrom_swearing(self, value: float) -> None:
             amount = jmod.getvalue(
                 key='reputation.swearing',
                 dt=data_tables.USER_DT,
-                value=value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                json_dir=self.user_rep_dir,
             )
+
+            rep_value = amount - value
+            if rep_value <= -10.0:
+                rep_value = -10.0
+
             jmod.setvalue(
                 key='reputation.swearing',
                 dt=data_tables.USER_DT,
-                value=amount - value,
-                json_dir=json_storage.get_users_dir(self.user_id),
+                value=rep_value,
+                json_dir=self.user_rep_dir,
             )
 
 class memory:
     '''
     A class for storing data in permanent memory.
     Auto-switches between json_storage and postgre depending on the value of use_postgre in data_tables.SETTINGS_DT 
-    '''        
+    '''
+    def list_known_users():
+        '''
+        Lists all known users in the database or json files.
+        '''
+        if do_use_postgre():
+            query = "SELECT user_id FROM users;"
+            member_tuple = postgre.query(query, args=None, do_commit=False)
+            # Converts from a tuple to a list for consistency
+            member_list = []
+            for member in member_tuple:
+                member_list.append(member[0])
+            return member_list
+        else:
+            member_list = []
+            for member in os.listdir('memory/users/'):
+                member_list.append(member)
+
     class guild:
         def __init__(self, guild_id) -> None:
             self.guild_id = guild_id
@@ -514,6 +789,18 @@ class memory:
                 self.mem_method = postgre.user_reputation(user_id)
             else:
                 self.mem_method = json_storage.user_reputation(user_id)
+
+        def get_reputation(self) -> dict:
+            return self.mem_method.get_reputation()
+
+        def set_last_nullification_time(self, value: float) -> None:
+            return self.mem_method.set_last_nullification_time(value)
+
+        def get_last_nullification_time(self) -> float:
+            return self.mem_method.get_last_nullification_time()
+
+        def get_overall(self) -> float:
+            return self.mem_method.get_overall()
 
         def get_slurs(self) -> float:
             return self.mem_method.get_slurs()

@@ -5,3 +5,4 @@ __pycache__
 memory
 settings.json
 library/ssl
+.idea
