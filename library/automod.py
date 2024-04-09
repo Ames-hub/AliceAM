@@ -60,7 +60,7 @@ class automod:
             rep_value = self.user.get_swearing() if is_reptype_swears is True else self.user.get_slurs()
 
             # Determines sim ratio for sim check
-            sim_ratio = 85
+            sim_ratio = 100
             for i in range(int(rep_value), 11):
                 if rep_value < 0:
                     sim_ratio -= 3.5
@@ -120,10 +120,10 @@ class automod:
             )
 
             checks_list = [
-                # components.equality_check,
-                # components.substring_check,
-                # components.symbol_check,
-                # components.wsw_check,
+                components.equality_check,
+                components.substring_check,
+                components.symbol_check,
+                components.wsw_check,
                 components.similarity_check
             ]
 
@@ -143,7 +143,7 @@ class automod:
             '''
             This class contains each check that we have.
             '''
-            def __init__(self, content, blacklist, account_for_rep, user_id, sim_ratio=0.8):
+            def __init__(self, content, blacklist, account_for_rep, user_id, sim_ratio=80):
                 self.content = content
                 self.blacklist = blacklist
                 self.account_for_rep = account_for_rep
