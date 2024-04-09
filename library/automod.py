@@ -304,6 +304,7 @@ class automod:
                     value=admin_warn_msg,
                     inline=False
                 )
+            return embed
 
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(lightbulb.Plugin(__name__))
