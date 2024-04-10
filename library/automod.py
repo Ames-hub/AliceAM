@@ -62,10 +62,10 @@ class automod:
             # Determines sim ratio for sim check
             sim_ratio = 100
             for i in range(int(rep_value), 11):
-                if rep_value < 0:
-                    sim_ratio -= 3.5
+                if rep_value < 0: # If rep is less than 0, make it stricter.
+                    sim_ratio -= 3.2
                 else:
-                    sim_ratio -= 3
+                    sim_ratio -= 3.0
                 # If the rep_value is less than -8, add a bit so they aren't attacked for every msg
             if rep_value <= -8:
                 sim_ratio += 20
@@ -281,7 +281,7 @@ class automod:
                 if end_at > len(word_found):
                     end_at = len(word_found)
 
-                desc += f"\"{word_found[:index_start]}*__{word_found[start_at+3:end_at-3]}__*{word_found[index_end:]}\"\n"
+                desc += f"\"{word_found[:index_start]}*__{word_found[start_at+3:end_at-3]}__*{word_found[index_end:]}\""
                 # Censors the desc
                 desc = automod.censor_text(desc)
 
