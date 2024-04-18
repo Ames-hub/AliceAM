@@ -60,15 +60,7 @@ class automod:
             rep_value = self.user.get_swearing() if is_reptype_swears is True else self.user.get_slurs()
 
             # Determines sim ratio for sim check
-            sim_ratio = 100
-            for i in range(int(rep_value), 11):
-                if rep_value < 0: # If rep is less than 0, make it stricter.
-                    sim_ratio -= 3.2
-                else:
-                    sim_ratio -= 3.0
-                # If the rep_value is less than -8, add a bit so they aren't attacked for every msg
-            if rep_value <= -8:
-                sim_ratio += 20
+            sim_ratio = 85 - 2 * (10 - rep_value) if rep_value < -0.5 else 85 - 1 * (10 - rep_value)
 
             self.sim_ratio = sim_ratio
 
@@ -281,7 +273,7 @@ class automod:
                 if end_at > len(word_found):
                     end_at = len(word_found)
 
-                desc += f"\"{word_found[:index_start]}*__{word_found[start_at+3:end_at-3]}__*{word_found[index_end:]}\""
+                desc += f"\"{word_found[:index_start]}*__{word_found[index_start:index_end]}__*{word_found[index_end:]}\""
                 # Censors the desc
                 desc = automod.censor_text(desc)
 
