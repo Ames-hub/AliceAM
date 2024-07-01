@@ -93,7 +93,7 @@ class down_queue:
 downqueue = down_queue()
 
 class db_tables:
-    def ensure_exists():
+    def modernize():
         conn = None
         # Fetch a database connection
         conn = connman.fetch()
