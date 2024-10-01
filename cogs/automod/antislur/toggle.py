@@ -1,4 +1,4 @@
-from library.storage import memory
+from library.storage import PostgreSQL
 from .group import antislur_group
 import lightbulb, hikari, logging
 
@@ -19,8 +19,8 @@ import lightbulb, hikari, logging
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def antislur_toggle_command(ctx: lightbulb.SlashContext) -> None:
     enabled:bool = ctx.options.enabled
+    guild = PostgreSQL.guild(ctx.guild_id)
 
-    guild = memory.guild(ctx.guild_id)
     try:
         success = guild.set_antislur_enabled(bool(enabled))
     except TypeError:

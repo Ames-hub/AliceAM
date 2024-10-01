@@ -1,4 +1,4 @@
-from library.storage import memory
+from library.storage import PostgreSQL
 from .group import antiswear_group
 import lightbulb, hikari, logging
 
@@ -19,7 +19,7 @@ import lightbulb, hikari, logging
 async def antiswear_toggle_command(ctx: lightbulb.SlashContext) -> None:
     enabled:bool = ctx.options.enabled
 
-    guild = memory.guild(ctx.guild_id)
+    guild = PostgreSQL.guild(ctx.guild_id)
     try:
         success = guild.set_antiswear_enabled(bool(enabled))
     except TypeError:

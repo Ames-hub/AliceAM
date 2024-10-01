@@ -1,16 +1,15 @@
-# Automoderation functions.py
-from .variables import swears, slurs
-from .botapp import bot
-from .storage import memory
 import lightbulb, hikari, datetime, os
+from .variables import swears, slurs
 from difflib import SequenceMatcher
-colourless = bot.d['colourless']
+from .storage import PostgreSQL
+from .botapp import bot
 
 class automod:
+    @staticmethod
     def censor_text(text:str):
-        '''
+        """
         Censors text by replacing bad text with a '/'
-        '''
+        """
         censored_text = ""
         for swear in swears:
             if swear in text:
@@ -42,7 +41,7 @@ class automod:
 
             self.blacklist = blacklist
             self.account_for_rep = account_for_rep
-            # Account for rep can be changed later using (instance).account_for_rep = False but its fine. rep class already assigned, it'll just stop it.
+
             if account_for_rep is True and user_id is None:
                 raise ValueError(
                     "account_for_rep is True but user_id is None. Need User_ID to know who's reputation to fetch.")
@@ -50,7 +49,7 @@ class automod:
                 raise ValueError(
                     "account_for_rep is False but user_id is not None. Need account_for_rep to be True for fetching reputation to matter.")
             elif account_for_rep and user_id is not None:
-                user = memory.user_reputation(user_id)
+                user = PostgreSQL.user_reputation(user_id)
                 self.overall_reputation = user.get_overall()
                 self.user = user
             self.user_id = user_id
@@ -65,9 +64,9 @@ class automod:
             self.sim_ratio = sim_ratio
 
         def heuristical(self) -> bool:
-            '''
+            """
             Checks if a message contains a forbidden word. Returns True if it does, False if it doesn't.
-            '''
+            """
             if self.content is None or self.content == "" or self.blacklist == []:
                 return False
 
@@ -84,8 +83,8 @@ class automod:
             else:
                 return False
     
-        def repHeuristic(self) -> list:
-            '''
+        def rep_heuristic(self) -> list:
+            """
             Much like the Heuristical checker, but instead this bases it off the stored trustability of the user.
 
             Returns:
@@ -95,9 +94,9 @@ class automod:
                 int: The index of the word found in the blacklist.
                 float: The similarity ratio between the two strings if the similarity check was tripped. (-1 if not)
                 str: The check that was tripped. (substring, symbol, equality, wsw, similarity)
-            '''
+            """
             if self.content is None or self.content == "" or self.blacklist == []:
-                return False
+                return [False, None, None, None]
 
             assert self.user_id is not None, "User ID is None. Cannot check reputation without it."
             assert self.blacklist is not None, 'Blacklist must not be none'
@@ -121,21 +120,20 @@ class automod:
 
             for check in checks_list:
                 # noinspection PyArgumentList
-                result = check()
+                result:list = check()
+                assert result is not None, "Result must not be None"
 
                 if result is False:
                     continue
                 else:
                     result.append(f'check:{check.__name__.replace("_check", "")}')
                     return result
-                
-            return False
 
         class components:
-            '''
+            """
             This class contains each check that we have.
-            '''
-            def __init__(self, content, blacklist, account_for_rep, user_id, sim_ratio=80):
+            """
+            def __init__(self, content, blacklist, account_for_rep, user_id, sim_ratio=80.0):
                 self.content = content
                 self.blacklist = blacklist
                 self.account_for_rep = account_for_rep
@@ -160,8 +158,8 @@ class automod:
                         return [True, (item, self.content, (start, end))]
                 return False
 
-            def symbol_check(self):
-                '''
+            def symbol_check(self)-> list:
+                """
                 Check for words with symbols/punctuation. eg, "Your such a sl!ur." Uses equality.
 
                 Returns:
@@ -169,7 +167,7 @@ class automod:
 
                     bool: True if a forbidden word was found, False if not.
                     tuple: The blacklisted word and the content part that was found.
-                '''
+                """
                 nosymb_content = self.remove_symbols()
                 # Could be None if the message was all punctuation
                 if nosymb_content is not None:
@@ -178,17 +176,17 @@ class automod:
                             if word == item:
                                 return [True, (item, word)]
                 
-                return False
+                return [False, (None, None)]
 
-            def equality_check(self):
+            def equality_check(self) -> list:
                 # Equality check. eg, "slur" == "slur"
                 for word in self.content.split(" "):
                     for item in self.blacklist:
                         if word == item:
                             return [True, (item, word)]
-                return False
+                return [False, (None, None)]
 
-            def wsw_check(self):
+            def wsw_check(self) -> list:
                 content = self.content
                 content_split = content.split(" ")
                 content_count = len(content.split(" "))
@@ -203,12 +201,12 @@ class automod:
                             if item == part:
                                 return [True, (item, part)]
                         index += 1
-                    return False
+                    return [False, (None, None)]
                 elif content_count == 1:
-                    return False
+                    return [False, (None, None)]
 
             def similarity_check(self) -> list:
-                '''
+                """
                 Check for similarity. eg, "slur" == "sler"
 
                 Returns:
@@ -216,7 +214,7 @@ class automod:
 
                     bool: True if a similar word was found, False if not.
                     tuple: The detected blacklisted word[0], the word which tripped it[1], and the similarity ratio[2].
-                '''
+                """
                 ratio = self.ratio
                 assert ratio <= 100.0, f"Ratio must be less than or equal to 100. not {ratio}"
                 assert ratio >= 0.0, f"Ratio must be greater than or equal to 0. not {ratio}"
@@ -232,9 +230,10 @@ class automod:
                         if similarity >= ratio:
                             return [True, (item, word, similarity)]
 
-                return False
+                return [False, (None, None, -1)]
 
-    def gen_user_warning_embed(warning_title, user_id, check_result:list, is_admin=False):
+    @staticmethod
+    def gen_user_warning_embed(warning_title, user_id, check_result:list=None, is_admin=False):
         assert check_result is not None, "Check result must not be None"
 
         admin_warn_msg = (
@@ -246,7 +245,7 @@ class automod:
             return (hikari.Embed(
                     title=warning_title,
                     description="Automod has detected you broke the rules.",
-                    color=colourless,
+                    color=bot.d['colourless'],
                     timestamp=datetime.datetime.now().astimezone()
                 )
                 .set_thumbnail(
@@ -254,33 +253,35 @@ class automod:
                 )
             )
         else:
+            # TODO: Determine if this needs to be changed
             check_name = check_result[len(check_result)-1]
             word_found = check_result[1][1]
 
             desc = f"Automod has detected <@!{user_id}> broke the rules."
             if 'substring' in check_name:
-                index_start = check_result[1][2][0]
-                index_end = check_result[1][2][1]
+                index_start = check_result[1][2][0]  # Index of the start of the word
+                index_end = check_result[1][2][1]  # Index of the end of the word from the result of substring_check
 
                 desc = f"<@{user_id}> You cannot say that here.\n"
                 # Word found will be content if its substring check
                 # Highlights the blacklisted word in the content with underlines and italics
                 start_at = index_start - 10
                 end_at = index_end + 10
+
                 # Ensures there are no index errors
                 if start_at < 0:
                     start_at = 0
                 if end_at > len(word_found):
                     end_at = len(word_found)
 
-                desc += f"\"{word_found[:index_start]}*__{word_found[index_start:index_end]}__*{word_found[index_end:]}\""
+                desc += f"\"{word_found[:index_start]}*__{word_found[start_at:end_at]}__*{word_found[index_end:]}\""
                 # Censors the desc
                 desc = automod.censor_text(desc)
 
             embed = (hikari.Embed(
                     title=warning_title,
                     description=desc,
-                    color=colourless,
+                    color=bot.d['colourless'],
                     timestamp=datetime.datetime.now().astimezone()
                 )
                 .set_thumbnail(

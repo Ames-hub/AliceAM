@@ -1,6 +1,6 @@
 from library.botapp import bot, permissions
+from library.storage import PostgreSQL
 from library.automod import automod
-from library.storage import memory
 import lightbulb
 import hikari
 import typing
@@ -43,13 +43,14 @@ class AntiSpamSystem:
 antispam_system = AntiSpamSystem()
 
 class antispam(lightbulb.Plugin):
+    @staticmethod
     @bot.listen()
     async def listener(event: hikari.GuildMessageCreateEvent) -> bool:
         if event.author.is_bot:
             return False
         
         # Check if the guild has antispam enabled
-        guild_enabled = memory.guild(event.guild_id).get_antispam_enabled()
+        guild_enabled = PostgreSQL.guild(event.guild_id).get_antispam_enabled()
         if guild_enabled is False:
             return False
         
@@ -61,10 +62,12 @@ class antispam(lightbulb.Plugin):
             await antispam.punish(event)
 
         server_msg = automod.gen_user_warning_embed(
-            warning_title="AntiSpam Check Failed"
+            warning_title="AntiSpam Check Failed",
+            user_id=event.author.id,
         )
         await event.message.respond(server_msg)
 
+    @staticmethod
     async def punish(event: hikari.GuildMessageCreateEvent):
         success = False
         try:

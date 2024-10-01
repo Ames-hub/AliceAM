@@ -1,5 +1,8 @@
-import logging, datetime
-datenow = datetime.datetime.now().strftime("%Y-%m-%d %I%p")
+import logging, datetime, os
+
+os.makedirs('logs', exist_ok=True)
+
+datenow = datetime.datetime.now().strftime("%Y-%m-%d")
 logging.basicConfig(
     level=logging.INFO,
     filename=f"logs/{datenow}.log",

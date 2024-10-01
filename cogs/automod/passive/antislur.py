@@ -1,7 +1,7 @@
 from library.botapp import bot, permissions
+from library.storage import PostgreSQL
 from library.variables import slurs
 from library.automod import automod
-from library.storage import memory
 import lightbulb
 import hikari
 
@@ -9,11 +9,12 @@ import hikari
 colourless = bot.d['colourless']
 
 class antislur(lightbulb.Plugin):
+    @staticmethod
     @bot.listen()
     async def listener(event: hikari.GuildMessageCreateEvent) -> bool:
         if event.author.is_bot:
             return False
-        guild_enabled = memory.guild(event.guild_id).get_antislur_enabled()
+        guild_enabled = PostgreSQL.guild(event.guild_id).get_antislur_enabled()
         if guild_enabled is False:
             return False
 
@@ -22,16 +23,16 @@ class antislur(lightbulb.Plugin):
                 blacklist=slurs,
                 account_for_rep=True,
                 user_id=event.author_id
-        ).repHeuristic()
+        ).rep_heuristic()
 
-        user = memory.user_reputation(event.author_id)
+        user = PostgreSQL.user_reputation(event.author_id)
         if Heuristic_check is not False:
             is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id)
             # Punishes user for breaking the rule
-            user.subtractFrom_slurs(0.8)
+            user.subtract_from_slurs(0.8)
         else:
             # Reward user for not breaking the rule
-            user.addTo_slurs(0.05)
+            user.add_to_slurs(0.05)
             return False
 
         server_msg = automod.gen_user_warning_embed(
@@ -48,6 +49,7 @@ class antislur(lightbulb.Plugin):
             else:
                 await event.message.respond(server_msg)
 
+    @staticmethod
     async def punish(event: hikari.GuildMessageCreateEvent):
         # Punish the member for saying a slur
         success = False

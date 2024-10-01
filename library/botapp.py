@@ -1,23 +1,16 @@
+from library.encrpytion import encryption
+from lightbulb.ext import tasks
+from library.storage import var
 import lightbulb
 import hikari
-import dotenv
-import os
 
-from lightbulb.ext import tasks
+keys = encryption()
 
-dotenv.load_dotenv("secrets.env")
 INTENTS = hikari.Intents.ALL
 
-TOKEN = os.environ.get("TOKEN")
-if TOKEN is None:
-    from main import introduction
-
-    introduction()
-    print("Please restart the bot.")
-    exit()
 bot = lightbulb.BotApp(
-    token=TOKEN,
-    prefix="//",
+    token=keys.decrypt(var.get(file='settings.json', key='token')),
+    prefix=var.get(file='settings.json', key='prefix'),
     intents=INTENTS
 )
 tasks.load(bot)
@@ -25,15 +18,15 @@ bot.d['colourless'] = hikari.Colour(0x2b2d31)
 bot.d['spam_logs'] = {}
 bot.d['spammers_punished'] = {}
 
-
 class permissions:
+    @staticmethod
     async def check(
             permission,
             member: hikari.Member = None, guild: hikari.Guild = None,  # Method 1
             uuid=str or None, guid=str or None  # Method 2
     ):
 
-        '''
+        """
         A Permission checker. this will return if the user in the guild is allowed to issue a certain command or not
         according to discord permissions policy. This will return a boolean value. True if the user is allowed, False if not.
 
@@ -43,7 +36,7 @@ class permissions:
             ctx.respond("No.")
             return
         ```
-        '''
+        """
         # Prevents circular imports if imported here
         from library.cache import cache
         # Assume for safety

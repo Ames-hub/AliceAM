@@ -1,19 +1,19 @@
-from library.storage import memory
+from library.storage import PostgreSQL
 from library.botapp import tasks
 import lightbulb
 import datetime
 import random
 
 @tasks.task(h=24, auto_start=True)
-def NulLRep():
-    '''
+def null_rep():
+    """
     A function which slowly moves the reputation of all to 0.
-    '''
-    user_list = memory.list_known_users()
+    """
+    user_list = PostgreSQL.list_known_users()
 
     for user_id in user_list:
-        user = memory.user_reputation(user_id)
-        last_nulled = user.get_last_nullification_time()  # Assumes last_nulled is a datetime object.
+        user = PostgreSQL.user_reputation(user_id)
+        last_nulled = user.get_last_nullification_time()
 
         # Calculate the time difference since the last nullification
         timenow = datetime.datetime.now()
@@ -28,6 +28,7 @@ def NulLRep():
             slur_rep = user_rep_dict['slurs']
 
             # Handles nulling swearing reputation.
+            # noinspection PyTypeChecker
             def calc_null_amount(rep):
                 if rep >= 0:
                     return max(0, min(0.5, 1 - abs(rep) / 20))  # Moves towards 0 for positive rep
@@ -45,7 +46,7 @@ def NulLRep():
                     if random.randint(0, 1) == 1:
                         continue
 
-                user.subtractFrom_swearing(amount)
+                user.subtract_from_swearing(amount)
 
             if slur_rep != 0:
                 amount = calc_null_amount(slur_rep)
@@ -58,10 +59,10 @@ def NulLRep():
                     if random.randint(0, 1) == 1:
                         continue
 
-                user.subtractFrom_slurs(amount)
+                user.subtract_from_slurs(amount)
 
             # Updates last nulled value so that the user doesn't get nullified again too soon.
-            user.set_last_nullification_time(timenow)
+            user.set_last_nullification_time(timenow.timestamp())
 
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(lightbulb.Plugin(__name__))
