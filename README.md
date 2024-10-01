@@ -37,18 +37,7 @@ python3.12 main.py
 Step 4. It will take you through a setup process if this is the first time you've run the program
 <br>It will ask for the following information.
 - The token you got in step 1
-- Prefix you want the bot to use (Default is !!)
-- If you want to use PostgreSQL for data storage or Json files (Postgre Recommended)<br>
-
-Assuming you decide to set up PostgreSQL, It will ask for the following information
-- Host of the PostgreSQL server
-- Port of the PostgreSQL server
-- The username Alice should use to connect to the database
-- The password associated with the username
-- The name of the database Alice should use<br>
-
-However, if you do not use Postgre, there is no further setup.<br>
-If you are unlucky, you may have to manage file restrictions however as it will default to Json files for memory.
+- Prefix you want the bot to use (Default is //)
 
 ## Data Storage
 AliceAM uses PostgreSQL for data storage by default.
