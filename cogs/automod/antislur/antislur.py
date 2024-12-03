@@ -14,19 +14,24 @@ class antislur(lightbulb.Plugin):
     async def listener(event: hikari.GuildMessageCreateEvent) -> bool:
         if event.author.is_bot:
             return False
+
+        if event.message.content == "" or event.message.content is None:
+            return False
+
         guild_enabled = PostgreSQL.guild(event.guild_id).get_antislur_enabled()
         if guild_enabled is False:
             return False
 
         Heuristic_check = automod.text_checkers(
-                content=event.message.content,
-                blacklist=slurs,
-                account_for_rep=True,
-                user_id=event.author_id
+            content=event.message.content,
+            blacklist=slurs,
+            account_for_rep=True,
+            user_id=event.author_id,
+            guild_id=event.guild_id
         ).rep_heuristic()
 
         user = PostgreSQL.user_reputation(event.author_id)
-        if Heuristic_check is not False:
+        if Heuristic_check[0] is not False:
             is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id)
             # Punishes user for breaking the rule
             user.subtract_from_slurs(0.8)

@@ -2,11 +2,24 @@ from library.storage import var, dt, PostgreSQL
 from library.WebGUI.controller import gui
 from library.encrpytion import encryption
 import multiprocessing, os, hikari, sys
-from library.variables import logging
 from typing import List
 import subprocess
+import datetime
+import logging
 
 keys = encryption()
+
+datenow = datetime.datetime.now().strftime("%Y-%m-%d")
+logging.basicConfig(
+    level=logging.INFO,
+    filename=f"logs/{datenow}.log",
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logging.basicConfig(
+    level=logging.ERROR,
+    filename=f"logs/{datenow}.log",
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 colours = {
     'red': '\033[31m',
@@ -173,7 +186,9 @@ if __name__ == '__main__':
     bot.load_extensions_from("cogs/automod/antislur/")
     bot.load_extensions_from("cogs/automod/antiswear/")
     bot.load_extensions_from("cogs/automod/antispam/")
-    bot.load_extensions_from("cogs/automod/passive/")
+    bot.load_extensions_from("cogs/automod/image_scanner/")
+    bot.load_extensions_from("cogs/automod/staff_conf/")
+    bot.load_extensions_from("cogs/automod/modcmds/")
     bot.load_extensions_from("cogs/error_handlers/")
     bot.load_extensions_from("cogs/tasks_dir/")
     if len(os.listdir("cogs/plugins/")) != 0:
@@ -181,8 +196,8 @@ if __name__ == '__main__':
         # Even though if your making a plugin you probs already changed this files code.
         bot.load_extensions_from("cogs/plugins/")
 
-    # Bot must be ran in terminal. We can't run it in the background (blocks the terminal even when ran in a different thread)
-    # We will use a WebGUI Instead, and the webgui will be ran in a different thread.
+    # Bot must be running in terminal. We can't run it in the background (blocks the terminal even when ran in a different thread)
+    # We will use a WebGUI Instead, and the webgui will be run in a different thread.
     WEBGUI_THREAD = multiprocessing.Process(
         target=gui.run,
         args=()

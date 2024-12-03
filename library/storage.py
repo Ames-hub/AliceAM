@@ -1,8 +1,10 @@
-from datetime import datetime
-
-from library.variables import logging
 from library.encrpytion import encryption
+from library.variables import logging
+from datetime import datetime
+from io import BytesIO
+from PIL import Image
 import subprocess
+import imagehash
 import psycopg2
 import secrets
 import inspect
@@ -35,10 +37,11 @@ class dt:
             'database': None,
             'username': None,
             'password': None,
-        }
+        },
     }
 
-# noinspection DuplicatedCode,PyTypeChecker
+
+# noinspection DuplicatedCode,PyTypeChecker,PyShadowingNames
 class var:
     @staticmethod
     def set(key, value, file=settings_path, dt_default=dt.SETTINGS) -> bool:
@@ -271,10 +274,10 @@ class PostgreSQL:
             return False
 
     @staticmethod
-    def make_db_container() -> bool:
+    def make_db_container() -> bool | None:
         """
         Makes a PostgreSQL container that AliceAM can use.
-        :return: True if the container was created, False if it was not created.
+        :return: True if the container was created, False if it was not created. None if Docker is not installed.
         """
         # Uses docker to make a PostgreSQL container
         postgres_password = secrets.token_urlsafe(32)
@@ -294,6 +297,9 @@ class PostgreSQL:
         except subprocess.CalledProcessError as err:
             logging.error(f'Could not create the container. {err}', )
             return False
+        except FileNotFoundError:
+            logging.error('Docker is not installed.')
+            return None
 
         print("Waiting for the DB to start...")
         time.sleep(3)
@@ -407,6 +413,28 @@ class PostgreSQL:
                 'antiswear_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
                 'antislur_enabled': 'BOOLEAN NOT NULL DEFAULT TRUE',
                 'antispam_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                'image_scanner_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                'show_censored_substrings': 'BOOLEAN NOT NULL DEFAULT FALSE',
+            },
+            'guild_word_whitelist': {
+                'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
+                'word': 'TEXT NOT NULL UNIQUE',
+            },
+            'guild_log_channels': {
+                'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
+                'channel_id': 'BIGINT DEFAULT NULL',
+                'enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
+            },
+            'img_scanner_cases': {
+                'case_id': 'SERIAL PRIMARY KEY',
+                'guild_id': 'BIGINT NOT NULL',
+                'offender_id': 'BIGINT NOT NULL',
+                'img_hash': 'TEXT NOT NULL',
+                'bytedata': 'BYTEA NOT NULL',
+            },
+            'img_scanner_exempt_channel': {
+                'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
+                'channel_id': 'BIGINT DEFAULT NULL UNIQUE',
             },
             'users': {
                 'user_id': 'BIGINT NOT NULL PRIMARY KEY',
@@ -455,6 +483,21 @@ class PostgreSQL:
 
             # Commit the changes
             conn.commit()
+
+    def img_scan_history(self, img_hash):
+        """
+        Returns the result of a past image scan from the database by the image hash and returns a dictionary with byte data and case ID.
+        """
+        query = "SELECT bytedata, case_id FROM img_scanner_cases WHERE img_hash=%s"
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (img_hash,))
+                result = cur.fetchone()
+            return {'bytedata': result[0], 'case_id': result[1]} if result else None
+        except Exception as err:
+            logging.error(f"Could not get image scan history from the database.", err)
+            return None
 
     class db_tables:
         @staticmethod
@@ -533,10 +576,134 @@ class PostgreSQL:
             Initializes the guild object.
             This object is used to interact with the guilds table in the database for a specific guild.
             """
-            self.guild_id = guild_id
+            self.guild_id = int(guild_id)
             # Makes sure the guild is in the database
-            PostgreSQL.db_tables.ensure_guild(guild_id)
+            PostgreSQL.db_tables.ensure_guild(int(guild_id))
+
+        def get_custom_whitelist(self):
+            """
+            Returns the custom whitelist for the guild.
+            """
+            query = "SELECT word FROM guild_word_whitelist WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchall()
+                return [word[0] for word in result] if result else []
+            except Exception as err:
+                logging.error(f"Could not get custom whitelist for guild {self.guild_id}.", err)
+                return []
+
+        def add_whitelist_word(self, word):
+            """
+            Adds a word to the whitelist for the guild.
+            """
+            query = "INSERT INTO guild_word_whitelist (guild_id, word) VALUES (%s, %s)"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id, word))
+                    conn.commit()
+                return True
+            except psycopg2.errors.UniqueViolation:
+                return -1
+            except Exception as err:
+                logging.error(f"Could not add word to the whitelist for guild {self.guild_id}.", err)
+                return False
             
+        def remove_whitelist_word(self, word):
+            """
+            Removes a word from the whitelist for the guild.
+            """
+            query = "DELETE FROM guild_word_whitelist WHERE guild_id=%s AND word=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id, word))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not remove word from the whitelist for guild {self.guild_id}.", err)
+                return
+
+        def add_exempt_img_scan_channel(self, channel_id: int) -> bool | int:
+            """
+            Adds a channel to the exempt list for the image scanner.
+            """
+            query = "INSERT INTO img_scanner_exempt_channel (guild_id, channel_id) VALUES (%s, %s)"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id, channel_id))
+                    conn.commit()
+                return True
+            except psycopg2.errors.UniqueViolation:
+                return -1
+            except Exception as err:
+                logging.error(f"Could not add channel to the exempt list for image scanner.", err)
+                return False
+
+        def remove_exempt_img_scan_channel(self, channel_id: int) -> bool:
+            """
+            Removes a channel from the exempt list for the image scanner.
+            """
+            query = "DELETE FROM img_scanner_exempt_channel WHERE guild_id=%s AND channel_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id, channel_id))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not remove channel from the exempt list for image scanner.", err)
+                return False
+
+        def get_exempt_img_scan_channels(self) -> list:
+            """
+            Returns a list of all exempt channels for the image scanner.
+            """
+            query = "SELECT channel_id FROM img_scanner_exempt_channel WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchall()
+                return [channel[0] for channel in result] if result else []
+            except Exception as err:
+                logging.error(f"Could not get exempt channels for image scanner.", err)
+                return []
+
+        def get_image_scanner_enabled(self):
+            """
+            Returns the value of the image_scanner_enabled column in the guilds table.
+            """
+            query = f"SELECT image_scanner_enabled FROM guilds WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchone()
+                return result[0]
+            except Exception as err:
+                logging.error(f"Could not get image scanner protection for {self.guild_id}.", err)
+                return False
+
+        def set_imagescanner_enabled(self, value: bool) -> bool:
+            """
+            Sets the value of the image_scanner_enabled column in the guilds table.
+            """
+            query = f"UPDATE guilds SET image_scanner_enabled=%s WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (value, self.guild_id))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not set image scanner protection to {value} for {self.guild_id}.", err)
+                return False
+
         def get_antiswear_enabled(self) -> bool:
             """
             Returns the value of the antiswear_enabled column in the guilds table.
@@ -547,9 +714,9 @@ class PostgreSQL:
                     cur = conn.cursor()
                     cur.execute(query, (self.guild_id,))
                     result = cur.fetchone()
-                    return result[0][0]
+                    return result[0]
             except Exception as err:
-                logging.error(f"Could not get antiswear protection for {self.guild_id}.", err)
+                logging.error(f"Could not get antiswear protection for guid {self.guild_id}.", err)
                 return False
 
         def set_antiswear_enabled(self, value: bool) -> bool:
@@ -577,7 +744,7 @@ class PostgreSQL:
                     cur = conn.cursor()
                     cur.execute(query, (self.guild_id,))
                     result = cur.fetchone()
-                return result[0][0]
+                return result[0]
             except Exception as err:
                 logging.error(f"Could not get antislur protection for {self.guild_id}.", err)
                 return False
@@ -607,7 +774,7 @@ class PostgreSQL:
                     cur = conn.cursor()
                     cur.execute(query, (self.guild_id,))
                     result = cur.fetchone()
-                return result[0][0]
+                return result[0]
             except Exception as err:
                 logging.error(f"Could not get antispam protection for {self.guild_id}.", err)
                 return False
@@ -627,7 +794,157 @@ class PostgreSQL:
                 logging.error(f"Could not set antispam protection to {value} for {self.guild_id}.", err)
                 return False
 
-    # Not practical to make this DRY, as the columns are different for each reputation type.
+        def get_show_censored_substrings(self) -> bool:
+            """
+            Returns the value of the show_censored_substrings_ok column in the guilds table.
+            """
+            query = f"SELECT show_censored_substrings FROM guilds WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchone()
+                return result[0]
+            except Exception as err:
+                logging.error(f"Could not get show_censored_substrings_ok for {self.guild_id}.", err)
+                return False
+
+        def get_auditlog_channel_id(self):
+            """
+            Returns the value of the log_channel_id column in the guilds table.
+            """
+            query = f"SELECT channel_id FROM guild_log_channels WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchone()
+                return result[0] if result else None
+            except Exception as err:
+                logging.error(f"Could not get log channel ID for {self.guild_id}.", err)
+                return None
+
+        def set_auditlog_channel_id(self, channel_id: int) -> bool:
+            """
+            Sets the value of the log_channel_id column in the guild_log_channels table.
+            If the row does not exist, it will be created.
+            """
+            query_insert = """
+            INSERT INTO guild_log_channels (guild_id, channel_id)
+            VALUES (%s, %s)
+            ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id;
+            """
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query_insert, (self.guild_id, channel_id))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not set log channel ID to {channel_id} for {self.guild_id}.", err)
+                return False
+
+        def set_auditlog_enabled(self, value: bool) -> bool:
+            """
+            Sets the value of the log_channel_enabled column in the guild_log_channels table.
+            If the row does not exist, it will be created.
+            """
+            query_insert = """
+            INSERT INTO guild_log_channels (guild_id, enabled)
+            VALUES (%s, %s)
+            ON CONFLICT (guild_id) DO UPDATE SET enabled = EXCLUDED.enabled;
+            """
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query_insert, (self.guild_id, value))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not set log channel enabled to {value} for {self.guild_id}.", err)
+                return False
+
+        def get_auditlog_enabled(self) -> bool:
+            """
+            Returns the value of the log_channel_enabled column in the guilds table.
+            """
+            query = f"SELECT enabled FROM guild_log_channels WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchone()
+                return result[0] if result else False
+            except Exception as err:
+                logging.error(f"Could not get log channel enabled for {self.guild_id}.", err)
+                return False
+
+    class audit_log:
+        def __init__(self, guild_id: int) -> None:
+            """
+            This is a class meant to track internally what AliceAM has done in a guild.
+            May not be comprehensive, but it's a start.
+            """
+            self.guild_id = guild_id
+
+        def add_image_scan_handling(self, offender_id: int, img: Image) -> bool:
+            """
+            Records an image scan violation and what Alice did about it.
+            """
+            assert isinstance(offender_id, int)
+            assert isinstance(img, Image.Image)
+
+            # Convert the image to byte data
+            img_byte_arr = BytesIO()
+            img.save(img_byte_arr, format='JPEG')
+            img_byte_data = img_byte_arr.getvalue()
+
+            # Get the hash of the image
+            img_hash = imagehash.average_hash(img)
+
+            query = "INSERT INTO img_scanner_cases (guild_id, offender_id, img_hash, bytedata) VALUES (%s, %s, %s, %s)"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id, offender_id, str(img_hash), img_byte_data))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not add image scan violation to the database.", err)
+                return False
+
+        def get_caseid_for_img_scan(self, offender_id: int, img_hash: str) -> int | None:
+            """
+            Returns the case ID of an image scan violation.
+            """
+            query = "SELECT case_id FROM img_scanner_cases WHERE guild_id=%s AND offender_id=%s AND img_hash=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id, offender_id, img_hash))
+                    result = cur.fetchone()
+                return result[0] if result else None
+            except Exception as err:
+                logging.error(f"Could not get image scan case ID.", err)
+                return None
+
+        # noinspection PyMethodMayBeStatic
+        def get_img_scan_case_by_id(self, case_ID: int):
+            """
+            Returns the image scan case by the case ID.
+            """
+            query = "SELECT * FROM img_scanner_cases WHERE case_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (case_ID,))
+                    result = cur.fetchone()
+                return result
+            except Exception as err:
+                logging.error(f"Could not get image scan case by ID.", err)
+                return None
+
+    # Not practical to make this DRY-Compliant, as the columns are different for each reputation type.
     # noinspection DuplicatedCode
     class user_reputation:
         def __init__(self, user_id: int) -> None:
@@ -665,7 +982,7 @@ class PostgreSQL:
                         cur.execute(query, (self.user_id,))
                         result = cur.fetchone()
                     # Store the column contents in the reps result dictionary
-                    reps_dict[column_name] = result[0][0]
+                    reps_dict[column_name] = result[0]
             else:
                 raise EnvironmentError("No reputation columns found in the users table. Is the table missing columns?")
 
@@ -685,7 +1002,7 @@ class PostgreSQL:
                 cur = conn.cursor()
                 cur.execute(query, (self.user_id,))
                 result = cur.fetchone()
-            return result[0][0]
+            return result[0]
 
         def set_last_nullification_time(self, timedate: float) -> None:
             """
@@ -718,7 +1035,7 @@ class PostgreSQL:
                         result = cur.fetchone()
                     # Store the column contents in the reps result list
                     if result:
-                        reps_list.append(result[0][0])
+                        reps_list.append(result[0])
                     else:
                         # appends starting data if the user has no data in the column
                         reps_list.append(0.0)
@@ -740,7 +1057,7 @@ class PostgreSQL:
                 result = cur.fetchone()
 
             if result:
-                return result[0][0]
+                return result[0]
             else:
                 return 0.0
         
@@ -771,7 +1088,7 @@ class PostgreSQL:
                 cur.execute(query, (self.user_id,))
                 result = cur.fetchone()
             if result:
-                amount = result[0][0]
+                amount = result[0]
             else:
                 amount = 0.0
 
@@ -798,7 +1115,7 @@ class PostgreSQL:
                 cur.execute(query, (self.user_id,))
                 result = cur.fetchone()
             if result:
-                amount = result[0][0]
+                amount = result[0]
             else:
                 amount = 0.0
 
@@ -825,7 +1142,7 @@ class PostgreSQL:
                 cur.execute(query, (self.user_id,))
                 result = cur.fetchone()
             if result:
-                return result[0][0]
+                return result[0]
             else:
                 return 0.0
         
@@ -857,7 +1174,7 @@ class PostgreSQL:
                 result = cur.fetchone()
 
             if result:
-                amount = result[0][0]
+                amount = result[0]
             else:
                 amount = 0.0
 
@@ -887,7 +1204,7 @@ class PostgreSQL:
                 result = cur.fetchone()
 
             if result:
-                amount = result[0][0]
+                amount = result[0]
             else:
                 amount = 0.0
 

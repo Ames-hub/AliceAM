@@ -23,6 +23,8 @@ AliceAM has a variety of Qualities and Features, some of which include
 - No obfuscation of code
 - Easy to set up
 
+[Click me to see the full feature list](https://github.com/Ames-hub/AliceAM/blob/main/documentation/FEATURES.md)
+
 # How do I selfhost Alice?
 Step 1. Have/Get a Discord Bot Token.<br>
 If you don't have this token, you can get it at [The Discord Developer portal](https://discord.com/developers/applications/) by clicking "new application"
@@ -38,9 +40,3 @@ Step 4. It will take you through a setup process if this is the first time you'v
 <br>It will ask for the following information.
 - The token you got in step 1
 - Prefix you want the bot to use (Default is //)
-
-## Data Storage
-AliceAM uses PostgreSQL for data storage by default.
-It used to allow for Json files, but this has been removed due to the fact
-that the json system never received any testing and, as far as I could tell due to lack of testing,
-was at risk of combusting into flames at the drop of a hat.

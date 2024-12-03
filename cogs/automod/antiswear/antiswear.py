@@ -10,23 +10,30 @@ colourless = bot.d['colourless']
 
 class antiswear(lightbulb.Plugin):
     @staticmethod
-    @bot.listen()
+    @bot.listen(hikari.GuildMessageCreateEvent)
     async def listener(event: hikari.GuildMessageCreateEvent) -> bool:
         if event.author.is_bot:
             return False
+
+        if event.message.content == "" or event.message.content is None:
+            return False
+
         guild_enabled = PostgreSQL.guild(event.guild_id).get_antiswear_enabled()
         if guild_enabled is False:
             return False
 
-        Heuristic_check = automod.text_checkers(
-                content=event.message.content,
-                blacklist=swears,
-                account_for_rep=True,
-                user_id=event.author_id
+        Heuristic_Check = automod.text_checkers(
+            content=event.message.content,
+            blacklist=swears,
+            account_for_rep=True,
+            user_id=event.author_id,
+            guild_id=event.guild_id
         ).rep_heuristic()
 
+        HC_Bool = Heuristic_Check[0]
+
         user = PostgreSQL.user_reputation(event.author_id)
-        if Heuristic_check is not False:
+        if HC_Bool is not False:
             is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id)
             # Punishes user for breaking the rule
             user.subtract_from_swearing(0.8)
@@ -38,7 +45,7 @@ class antiswear(lightbulb.Plugin):
         server_msg = automod.gen_user_warning_embed(
             'AntiSwear Check Failed',
             is_admin=is_admin,
-            check_result=Heuristic_check,
+            check_result=Heuristic_Check,
             user_id=event.author_id
         )
 
@@ -59,6 +66,7 @@ class antiswear(lightbulb.Plugin):
         except (hikari.ForbiddenError, hikari.NotFoundError, hikari.BadRequestError, hikari.UnauthorizedError):
             pass
         return success
+
 
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(lightbulb.Plugin(__name__))

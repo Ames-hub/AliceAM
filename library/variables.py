@@ -21,7 +21,6 @@ slurs = [
     "negro",
     "fag",
     "faggot",
-    "tranny",
 ]
 
 swears = [
@@ -30,8 +29,6 @@ swears = [
     "fucking",
     "cunt",
     "cunny",
-    "pussy",
-    "vagina",
     "slut",
     "asshole",
     "bitch",
@@ -44,9 +41,7 @@ swears = [
     "cock",
     "horny",
     "cum",
-    "sperm",
     "wank",
-    "masturbate",
 ]
 
 domain_endings = [
