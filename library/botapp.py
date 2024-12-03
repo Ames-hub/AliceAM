@@ -1,4 +1,5 @@
 from library.encrpytion import encryption
+from library.variables import logging
 from lightbulb.ext import tasks
 from library.storage import var
 import lightbulb
@@ -17,25 +18,19 @@ tasks.load(bot)
 bot.d['colourless'] = hikari.Colour(0x2b2d31)
 bot.d['spam_logs'] = {}
 bot.d['spammers_punished'] = {}
+bot.d['permissions_cache'] = {}
 
 class permissions:
     @staticmethod
     async def check(
             permission,
-            member: hikari.Member = None, guild: hikari.Guild = None,  # Method 1
+            member: hikari.Member | hikari.User = None, guild: hikari.Guild = None,  # Method 1
             uuid=str or None, guid=str or None  # Method 2
     ):
 
         """
         A Permission checker. this will return if the user in the guild is allowed to issue a certain command or not
         according to discord permissions policy. This will return a boolean value. True if the user is allowed, False if not.
-
-        Example:
-        ```
-        if botlib.api.checkif.permitted(permission=hikari.Permissions.BAN_MEMBERS, uuid=member.id, guid=guild.id) == False:
-            ctx.respond("No.")
-            return
-        ```
         """
         # Prevents circular imports if imported here
         from library.cache import cache
@@ -55,14 +50,17 @@ class permissions:
         if cached_perms == -1:
             try:
                 checked_member = await bot.rest.fetch_member(hikari.Snowflake(guid), hikari.Snowflake(uuid))
-            except:
+            except hikari.errors.ForbiddenError:
+                return False
+            except hikari.errors.NotFoundError:
                 return False
 
             try:
                 checked_member = checked_member.get_top_role()
                 permissions = checked_member.permissions
                 cache.cache_perms(uuid, guid, permissions)
-            except:
+            except Exception as err:
+                logging.error(err)
                 return False
         else:
             permissions = cached_perms
@@ -93,11 +91,8 @@ class permissions:
                     guild = await bot.rest.fetch_guild(hikari.Snowflake(guid))
                     if str(guild.owner_id) in str(member.id) or str(guild.owner_id) in str(uuid):
                         allowed = True
-        except:
+        except Exception as err:
+            logging.error(err)
             pass
 
-        try:
-            return allowed
-        except:
-            return False  # Return false on any exception. This is JUST in case. It likely won't except
-            # but it's better to be safe than sorry.
+        return allowed

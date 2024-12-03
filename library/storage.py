@@ -1,6 +1,5 @@
 from library.encrpytion import encryption
 from library.variables import logging
-from datetime import datetime
 from io import BytesIO
 from PIL import Image
 import subprocess
@@ -415,6 +414,7 @@ class PostgreSQL:
                 'antispam_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
                 'image_scanner_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
                 'show_censored_substrings': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                'do_censor_flagged_nsfw': 'BOOLEAN NOT NULL DEFAULT FALSE',
             },
             'guild_word_whitelist': {
                 'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
@@ -431,18 +431,17 @@ class PostgreSQL:
                 'offender_id': 'BIGINT NOT NULL',
                 'img_hash': 'TEXT NOT NULL',
                 'bytedata': 'BYTEA NOT NULL',
+                'timestamp': 'BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)',
             },
             'img_scanner_exempt_channel': {
                 'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
                 'channel_id': 'BIGINT DEFAULT NULL UNIQUE',
             },
             'users': {
-                'user_id': 'BIGINT NOT NULL PRIMARY KEY',
-                'rep_slurs': 'FLOAT NOT NULL DEFAULT 0.0',
-                'rep_swearing': 'FLOAT NOT NULL DEFAULT 0.0',
-                # The below is for the task 'reputation_nuller'. View the file for more data
-                # But this is neccesary when accounting for reboots of the bot.
-                'nullification_time': 'TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                'user_id': 'BIGINT NOT NULL',
+                'reputation': 'INTEGER NOT NULL DEFAULT 50 CHECK (reputation >= 0 AND reputation <= 100)',
+                'last_rep_cooldown': 'BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)',
+                'infraction_count': 'INTEGER NOT NULL DEFAULT 0',
             },
         }
 
@@ -579,6 +578,40 @@ class PostgreSQL:
             self.guild_id = int(guild_id)
             # Makes sure the guild is in the database
             PostgreSQL.db_tables.ensure_guild(int(guild_id))
+
+        def get_do_censor_flagged_nsfw(self) -> bool:
+            """
+            Returns the value of the do_censor_flagged_nsfw column in the guilds table.
+            """
+            query = f"SELECT do_censor_flagged_nsfw FROM guilds WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchone()[0]
+                return result
+            except Exception as err:
+                logging.error(f"Could not get do_censor_flagged_nsfw for {self.guild_id}.", err)
+                return False
+
+        def set_do_censor_flagged_nsfw(self, value: bool) -> bool:
+            """
+            Sets the value of the do_censor_flagged_nsfw column in the guilds table.
+            """
+            query = """
+            INSERT INTO guilds (guild_id, do_censor_flagged_nsfw)
+            VALUES (%s, %s)
+            ON CONFLICT (guild_id) DO UPDATE SET do_censor_flagged_nsfw = EXCLUDED.do_censor_flagged_nsfw
+            """
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id, value))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not set do_censor_flagged_nsfw to {value} for {self.guild_id}.", err)
+                return False
 
         def get_custom_whitelist(self):
             """
@@ -946,277 +979,86 @@ class PostgreSQL:
 
     # Not practical to make this DRY-Compliant, as the columns are different for each reputation type.
     # noinspection DuplicatedCode
-    class user_reputation:
+    class users:
         def __init__(self, user_id: int) -> None:
             PostgreSQL.db_tables.ensure_user(user_id) # Makes sure the user is in the database
             self.user_id = user_id
 
-        def get_reputation(self) -> dict:
+        def get_infraction_count(self) -> int:
             """
-            Returns the value of all reputation columns in the users table.
-            Formats in a dictionary.
-
-            You can expect the result to look like this:
-            {
-                'slurs': -10~10,
-                'swearing': -10~10,
-                (etc. dict keys are same name for each DB column name without the 'rep_' prefix)
-            }
+            Returns the number of infractions a user has.
             """
-            # Get all column names that start with 'rep_'
-            query = "SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name LIKE 'rep_%'"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query)
-                columns = cur.fetchall()
+            query = "SELECT infraction_count FROM users WHERE user_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.user_id,))
+                    result = cur.fetchone()
+                return result[0] if result else 0
+            except Exception as err:
+                logging.error(f"Could not get infraction count for user {self.user_id}.", err)
+                return 0
 
-            # Initialize a dictionary to store the results
-            reps_dict = {}
-            # If columns exist, fetch the contents of each column
-            if columns:
-                for column in columns:
-                    column_name = column[0]
-                    query = f"SELECT {column_name} FROM users WHERE user_id = %s"
-                    with PostgreSQL.get_connection() as conn:
-                        cur = conn.cursor()
-                        cur.execute(query, (self.user_id,))
-                        result = cur.fetchone()
-                    # Store the column contents in the reps result dictionary
-                    reps_dict[column_name] = result[0]
-            else:
-                raise EnvironmentError("No reputation columns found in the users table. Is the table missing columns?")
-
-            return_dict = {}
-            # Takes each key and removes the suffix 'rep_' to it. Then adds it to the return_dict
-            # This is to keep the data consistent with the json storage and make it look cleaner on use.
-            for key in reps_dict.keys():
-                return_dict[key[4:]] = reps_dict[key]
-            return return_dict
-
-        def get_last_nullification_time(self) -> datetime:
+        def add_infraction(self) -> bool:
             """
-            Returns the value of the rep_nullification column in the users table.
+            Adds an infraction to a user.
             """
-            query = f"SELECT nullification_time FROM users WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (self.user_id,))
-                result = cur.fetchone()
-            return result[0]
+            query = "UPDATE users SET infraction_count = infraction_count + 1 WHERE user_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.user_id,))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not add infraction for user {self.user_id}.", err)
+                return False
 
-        def set_last_nullification_time(self, timedate: float) -> None:
+        def get_trust(self) -> int:
             """
-            Sets the value of the rep_nullification column in the users table.
+            Returns the reputation of a user.
             """
-            query = f"UPDATE users SET nullification_time=%s WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (timedate, self.user_id))
+            query = "SELECT reputation FROM users WHERE user_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.user_id,))
+                    result = cur.fetchone()
+                return result[0] if result else 50
+            except Exception as err:
+                logging.error(f"Could not get reputation for user {self.user_id}.", err)
+                return 50
 
-        def get_overall(self) -> float:
-            # Get all column names that start with 'rep_'
-            query = "SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name LIKE 'rep_%'"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query)
-                columns = cur.fetchall()
+        def modify_reputation(self, value: int|float, operator: str) -> bool:
+            if not operator in ['=', '+', '-']:
+                raise ValueError("Operator must be one of '=', '+', or '-'.")
+            if type(value) is not int:
+                raise TypeError("Value must be an integer.")
 
-            # Initialize a dictionary to store the results
-            reps_list = []
+            # It's safe to use f-strings here, as the operator can only be +, - or = and the user can't change it.
+            query = f"UPDATE users SET reputation = reputation {operator} %s WHERE user_id=%s"
 
-            # If columns exist, fetch the contents of each column
-            if columns:
-                for column in columns:
-                    column_name = column[0]
-                    query = f"SELECT {column_name} FROM users WHERE user_id = %s"
-                    with PostgreSQL.get_connection() as conn:
-                        cur = conn.cursor()
-                        cur.execute(query, (self.user_id,))
-                        result = cur.fetchone()
-                    # Store the column contents in the reps result list
-                    if result:
-                        reps_list.append(result[0])
-                    else:
-                        # appends starting data if the user has no data in the column
-                        reps_list.append(0.0)
-            else:
-                logging.warning("No reputation columns found in the users table. Is the table missing columns?")
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (value, self.user_id))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not modify reputation for user {self.user_id}.", err)
+                return False
 
-            # Gets an overall of a value from -10.0 to +10.0 based on how often each item in rep_list is closer to -10 or +10
-            return round(sum(reps_list) / len(reps_list), 2)
-
-        def get_slurs(self) -> float:
+        def get_last_rep_cooldown(self) -> int|float:
             """
-            Returns the value of the rep_slurs column in the users table.
+            Returns the last time the user gave reputation.
             """
-            query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
-
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (self.user_id,))
-                result = cur.fetchone()
-
-            if result:
-                return result[0]
-            else:
-                return 0.0
-        
-        def set_slurs(self, value: float) -> None:
-            """
-            Sets the value of the rep_slurs column in the users table.
-            """
-            # If the value is less than -10.0, set it to -10.0. Max value is 10.0, min value is -10.0
-            if value >= 10.0:
-                value = 10.0
-            elif value <= -10.0:
-                value = -10.0
-
-            query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
-
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (value, self.user_id))
-                conn.commit()
-
-        def add_to_slurs(self, value: float) -> None:
-            """
-            Adds to the value of the rep_slurs column in the users table.
-            """
-            query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (self.user_id,))
-                result = cur.fetchone()
-            if result:
-                amount = result[0]
-            else:
-                amount = 0.0
-
-            # If the addition made the value more than 10.0, set it to 10.0. Max value is 10.0, min value is -10.0
-            value = amount + value
-            if value >= 10.0:
-                value = 10.0
-            elif value <= -10.0:
-                value = -10.0
-
-            query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (value, self.user_id))
-                conn.commit()
-
-        def subtract_from_slurs(self, value: float) -> None:
-            """
-            Subtracts from the value of the rep_slurs column in the users table.
-            """
-            query = f"SELECT rep_slurs FROM users WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (self.user_id,))
-                result = cur.fetchone()
-            if result:
-                amount = result[0]
-            else:
-                amount = 0.0
-
-            # If the subtraction made the value less than -10.0, set it to -10.0. Max value is 10.0, min value is -10.0
-            value = amount - value
-            if value >= 10.0:
-                value = 10.0
-            elif value <= -10.0:
-                value = -10.0
-
-            query = f"UPDATE users SET rep_slurs=%s WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (value, self.user_id))
-                conn.commit()
-
-        def get_swearing(self) -> float:
-            """
-            Returns the value of the rep_swearing column in the users table.
-            """
-            query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (self.user_id,))
-                result = cur.fetchone()
-            if result:
-                return result[0]
-            else:
-                return 0.0
-        
-        def set_swearing(self, value: float) -> None:
-            """
-            Sets the value of the rep_swearing column in the users table.
-            """
-            # If the value is less than -10.0, set it to -10.0. Max value is 10.0
-            if value >= 10.0:
-                value = 10.0
-            elif value <= -10.0:
-                value = -10.0
-
-            query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (value, self.user_id))
-                conn.commit()
-
-        def add_to_swearing(self, value: float) -> None:
-            """
-            Adds to the value of the rep_swearing column in the users table.
-            """
-            query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
-
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (self.user_id,))
-                result = cur.fetchone()
-
-            if result:
-                amount = result[0]
-            else:
-                amount = 0.0
-
-            # If the addition made the value more than 10.0, set it to 10.0. Max value is 10.0
-            value = amount + value
-            if value >= 10.0:
-                value = 10.0
-            elif value <= -10.0:
-                value = -10.0
-
-            query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
-
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (value, self.user_id))
-                conn.commit()
-
-        def subtract_from_swearing(self, value: float) -> None:
-            """
-            Subtracts from the value of the rep_swearing column in the users table.
-            """
-            query = f"SELECT rep_swearing FROM users WHERE user_id=%s"
-
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (self.user_id,))
-                result = cur.fetchone()
-
-            if result:
-                amount = result[0]
-            else:
-                amount = 0.0
-
-            # If the subtraction made the value less than -10.0, set it to -10.0. Min value is -10.0
-            value = amount - value
-            if value >= 10.0:
-                value = 10.0
-            elif value <= -10.0:
-                value = -10.0
-
-            query = f"UPDATE users SET rep_swearing=%s WHERE user_id=%s"
-            with PostgreSQL.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(query, (value, self.user_id))
-                conn.commit()
+            query = "SELECT last_rep_cooldown FROM users WHERE user_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.user_id,))
+                    result = cur.fetchone()
+                return result[0] if result else time.time()
+            except Exception as err:
+                logging.error(f"Could not get last rep cooldown for user {self.user_id}.", err)
+                return time.time()

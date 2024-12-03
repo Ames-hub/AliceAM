@@ -3,6 +3,7 @@ from library.storage import PostgreSQL
 from library.variables import slurs
 from library.automod import automod
 import lightbulb
+import datetime
 import hikari
 
 # Same colour as the embed box
@@ -30,14 +31,14 @@ class antislur(lightbulb.Plugin):
             guild_id=event.guild_id
         ).rep_heuristic()
 
-        user = PostgreSQL.user_reputation(event.author_id)
+        user = PostgreSQL.users(event.author_id)
         if Heuristic_check[0] is not False:
             is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id)
             # Punishes user for breaking the rule
-            user.subtract_from_slurs(0.8)
+            user.modify_reputation(4, "-")
         else:
             # Reward user for not breaking the rule
-            user.add_to_slurs(0.05)
+            user.modify_reputation(3, "+")
             return False
 
         server_msg = automod.gen_user_warning_embed(
@@ -53,6 +54,18 @@ class antislur(lightbulb.Plugin):
                 await event.author.send(server_msg)
             else:
                 await event.message.respond(server_msg)
+        else:
+            await event.message.respond(
+                hikari.Embed(
+                    title='AntiSlur Check Failed',
+                    description=f'**{event.author.username}** Used a slur in their message,'
+                                'but I was unable to delete it.\n'
+                                'Please intervene manually and check my permissions.',
+                    color=colourless,
+                    timestamp=datetime.datetime.now().astimezone()
+                )
+                .set_thumbnail(event.author.avatar_url)
+            )
 
     @staticmethod
     async def punish(event: hikari.GuildMessageCreateEvent):

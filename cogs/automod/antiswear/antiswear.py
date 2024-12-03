@@ -3,6 +3,7 @@ from library.storage import PostgreSQL
 from library.variables import swears
 from library.automod import automod
 import lightbulb
+import datetime
 import hikari
 
 # Same colour as the embed box
@@ -32,7 +33,7 @@ class antiswear(lightbulb.Plugin):
 
         HC_Bool = Heuristic_Check[0]
 
-        user = PostgreSQL.user_reputation(event.author_id)
+        user = PostgreSQL.users(event.author_id)
         if HC_Bool is not False:
             is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id)
             # Punishes user for breaking the rule
@@ -55,6 +56,18 @@ class antiswear(lightbulb.Plugin):
                 await event.author.send(server_msg)
             else:
                 await event.message.respond(server_msg)
+        else:
+            await event.message.respond(
+                hikari.Embed(
+                    title='AntiSwear Check Failed',
+                    description=f'**{event.author.username}** Swore in their message,'
+                                'but I was unable to delete it.\n'
+                                'Please intervene manually and check my permissions.',
+                    color=colourless,
+                    timestamp=datetime.datetime.now().astimezone()
+                )
+                .set_thumbnail(event.author.avatar_url)
+            )
 
     @staticmethod
     async def punish(event: hikari.GuildMessageCreateEvent):

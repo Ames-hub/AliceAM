@@ -211,6 +211,7 @@ if __name__ == '__main__':
 
     @bot.listen()
     async def on_ready(event: hikari.events.ShardReadyEvent):
+        bot.d["bot_username"] = event.my_user.username
         print(f"{colours['green']}Bot is ready!{colours['reset']}")
         print(f"{colours['yellow']}Logged in as: {event.my_user.username}{colours['reset']}")
 

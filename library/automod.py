@@ -41,28 +41,8 @@ class automod:
 
             self.blacklist = blacklist
             self.account_for_rep = account_for_rep
-
-            if account_for_rep is True and user_id is None:
-                raise ValueError(
-                    "account_for_rep is True but user_id is None. Need User_ID to know who's reputation to fetch.")
-            elif account_for_rep is False and user_id is not None:
-                raise ValueError(
-                    "account_for_rep is False but user_id is not None. Need account_for_rep to be True for fetching reputation to matter.")
-            elif account_for_rep and user_id is not None:
-                user = PostgreSQL.user_reputation(user_id)
-                self.overall_reputation = user.get_overall()
-                self.user = user
             self.user_id = user_id
             self.guild_id = guild_id
-
-            # Determines if we're looking for slurs or a swear
-            is_reptype_swears = True if 'fuck' in self.blacklist else False
-            rep_value = self.user.get_swearing() if is_reptype_swears is True else self.user.get_slurs()
-
-            # Determines sim ratio for sim check
-            sim_ratio = 95 - 2 * (10 - rep_value) if rep_value < -0.5 else 85 - 1 * (10 - rep_value)
-
-            self.sim_ratio = sim_ratio
 
         def heuristical(self) -> list:
             """
@@ -80,7 +60,6 @@ class automod:
                 blacklist=self.blacklist,
                 account_for_rep=self.account_for_rep,
                 user_id=self.user_id,
-                sim_ratio=self.sim_ratio,
                 additional_whitelist=custom_whitelist
             )
 
@@ -132,7 +111,6 @@ class automod:
                 self.blacklist,
                 account_for_rep=self.account_for_rep,
                 user_id=self.user_id,
-                sim_ratio=self.sim_ratio,
                 additional_whitelist=custom_whitelist
             )
 
@@ -160,12 +138,12 @@ class automod:
             """
             This class contains each check that we have.
             """
-            def __init__(self, content, blacklist, account_for_rep, user_id, sim_ratio=90.0, additional_whitelist:list=None):
+            def __init__(self, content, blacklist, account_for_rep, user_id, additional_whitelist:list=None):
                 self.content = content
                 self.blacklist = blacklist
                 self.account_for_rep = account_for_rep
                 self.user_id = user_id
-                self.ratio = sim_ratio
+                self.user_trust = PostgreSQL.users(user_id).get_trust()
 
                 # Get the whitelist text file.
                 with open(os.path.abspath('library/whitelist.txt'), 'r') as f:
@@ -178,8 +156,8 @@ class automod:
 
                 # Get user reputation
                 if account_for_rep:
-                    user = PostgreSQL.user_reputation(user_id)
-                    self.overall_reputation = user.get_overall()
+                    user = PostgreSQL.users(user_id)
+                    self.overall_reputation = user.get_trust()
                     self.user_rep = user
 
             def remove_symbols(self):
@@ -217,9 +195,9 @@ class automod:
                     for word in nosymb_content.split(" "):
                         for item in self.blacklist:
                             if word == item:
+                                if word in self.whitelist:
+                                    continue
                                 return [True, (item, word)]
-
-                #
                 return [False, (None, None)]
 
             def equality_check(self) -> list:
@@ -234,6 +212,8 @@ class automod:
                     str: The check that was tripped. (substring, symbol, equality, wsw, similarity)
                 """
                 for word in self.content.split(" "):
+                    if word in self.whitelist:
+                        continue
                     for item in self.blacklist:
                         if word == item:
                             return [True, (item, word)]
@@ -254,21 +234,28 @@ class automod:
                     tuple: The blacklisted word and the content part that was found. (-1 if not found)
                     str: The check that was tripped. (substring, symbol, equality, wsw, similarity)
                 """
+                # Get the content and split it into words
                 content = self.content
                 content_split = content.split(" ")
-                content_count = len(content.split(" "))
+                content_count = len(content_split)
+
+                # Check if there is more than one word
                 if content_count > 1:
                     index = 0
                     for word in content_split:
                         try:
-                            part = word + content_split[index+1]
+                            # Combine the current word with the next word
+                            part = word + content_split[index + 1]
                         except IndexError:
+                            # Break the loop if there is no next word
                             break
+                        # Check if the combined word is in the blacklist
                         for item in self.blacklist:
                             if item == part:
                                 return [True, (item, part)]
                         index += 1
                     return [False, (None, None)]
+                # If there is only one word, return False
                 elif content_count == 1:
                     return [False, (None, None)]
 
@@ -282,19 +269,20 @@ class automod:
                     bool: True if a similar word was found, False if not.
                     tuple: The detected blacklisted word[0], the word which tripped it[1], and the similarity ratio[2].
                 """
-                assert self.ratio <= 100.0, f"Ratio must be less than or equal to 100. not {self.ratio}"
-                assert self.ratio >= 0.0, f"Ratio must be greater than or equal to 0. not {self.ratio}"
+                assert self.user_trust <= 100.0, f"Ratio must be less than or equal to 100. not {self.user_trust}"
+                assert self.user_trust >= 0.0, f"Ratio must be greater than or equal to 0. not {self.user_trust}"
 
                 # Determines how similar 2 strings are by importing the SequenceMatcher class from difflib
                 for word in self.content.split(" "):
                     for item in self.blacklist:
                         similarity = SequenceMatcher(None, a=word, b=item).ratio()
-                        # Converts the similarity ratio from a range from 0-1 to a percentage from 0-100
-                        similarity = similarity * 100
+                        # Converts the similarity ratio to a number that users can understand and is not too punishing
+                        # Eg, 0.8 * 90 = 72% similarity and needs >72% trust to be tripped
+                        similarity = similarity * 90
 
                         # Debug code. Uncomment to see the similarity ratio
                         # print(f"word: {word}\nitem: {item}\nsimilarity: {similarity}\nratio: {ratio}\n\nNEW CHECK\n\n")
-                        if similarity >= self.ratio:
+                        if similarity >= self.user_trust:
                             if word in self.whitelist:
                                 continue
 
