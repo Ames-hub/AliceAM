@@ -37,13 +37,12 @@ async def get_trust_score(ctx: lightbulb.SlashContext) -> None:
         check_user = PostgreSQL.users(ctx.author.id)
 
     trust_ratio = check_user.get_trust()
+    infraction_count = check_user.get_infraction_count(from_date=datetime.datetime.now() - datetime.timedelta(days=365))
 
     def trust_reword(ratio, username:str|None):
         if username is not None:
             if username == bot.d['bot_username']:
                 return "I'd say I'm quite trustworthy, wouldn't you agree? :D"
-
-        infraction_count = check_user.get_infraction_count()
         if ratio >= 100:
             if infraction_count == 0:
                 return "Spotless record!"
@@ -92,7 +91,8 @@ async def get_trust_score(ctx: lightbulb.SlashContext) -> None:
     embed = (
         hikari.Embed(
             title=f"Trust Score : {trust_ratio}-{distrust_ratio}",
-            description=trust_reword(trust_ratio, None if not was_user_requested else user_requested.username),
+            description=f"{trust_reword(trust_ratio, None if not was_user_requested else user_requested.username)}\n\n"
+                        f"You have {infraction_count} infraction(s) in the last 365 days.",
             color=bot.d['colourless'],
             timestamp=datetime.datetime.now().astimezone()
         )

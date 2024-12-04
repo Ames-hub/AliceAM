@@ -14,6 +14,7 @@ def is_animated_webp(url):
     img = Image.open(BytesIO(response.content))
     return getattr(img, "is_animated", False)
 
+# TODO: Upgrade this to use automod.punish() instead of the current method.
 @bot.listen(hikari.GuildMessageCreateEvent)
 async def listener(event: hikari.events.GuildMessageCreateEvent) -> bool:
     if len(event.message.attachments) == 0:
@@ -58,7 +59,7 @@ async def listener(event: hikari.events.GuildMessageCreateEvent) -> bool:
                     await event.message.remove_reaction("👀", user=bot.get_me())
                     return True
 
-        Intel_result = AliceIntel().predict_image(attachment.url, return_img=True)
+        Intel_result = AliceIntel.NsfwImagePredictor.predict(attachment.url, return_img_from_url=True)
         result = Intel_result['result']
 
         if result == "nsfw":
@@ -82,11 +83,11 @@ async def listener(event: hikari.events.GuildMessageCreateEvent) -> bool:
 
             # Save the action to the internal audit log
             audit = PostgreSQL.audit_log(guild_id=event.guild_id)
-            audit.add_image_scan_handling(
+            audit.img_scan_logs.add_image_scan_handling(
                 offender_id=event.message.author.id,
                 img=img,
             )
-            case_ID = audit.get_caseid_for_img_scan(offender_id=event.message.author.id, img_hash=str(img_hash))
+            case_ID = audit.img_scan_logs.get_caseid_for_img_scan(offender_id=event.message.author.id, img_hash=str(img_hash))
 
             # Send the deleted image to the logs channel.
             if guild.get_auditlog_enabled():

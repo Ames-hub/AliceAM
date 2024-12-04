@@ -5,6 +5,7 @@ from PIL import Image
 import subprocess
 import imagehash
 import psycopg2
+import datetime
 import secrets
 import inspect
 import json
@@ -219,6 +220,92 @@ class var:
 
         return True
 
+class ImgScanAuditLog:
+    """
+    A Class meant to be instantiated in the Postgre class, to carry over 'self' variables.
+    """
+    def __init__(self, guild_id: int):
+        self.guild_id = guild_id
+
+    def add_image_scan_handling(self, offender_id: int, img: Image) -> bool:
+        """
+        Records an image scan violation and what Alice did about it.
+        """
+        assert isinstance(offender_id, int)
+        assert isinstance(img, Image.Image)
+
+        # Convert the image to byte data
+        img_byte_arr = BytesIO()
+        img.save(img_byte_arr, format='JPEG')
+        img_byte_data = img_byte_arr.getvalue()
+
+        # Get the hash of the image
+        img_hash = imagehash.average_hash(img)
+
+        query = "INSERT INTO img_scanner_cases (guild_id, offender_id, img_hash, bytedata) VALUES (%s, %s, %s, %s)"
+        try:
+            with PostgreSQL.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (self.guild_id, offender_id, str(img_hash), img_byte_data))
+                conn.commit()
+            return True
+        except Exception as err:
+            logging.error(f"Could not add image scan violation to the database.", err)
+            return False
+
+    def get_caseid_for_img_scan(self, offender_id: int, img_hash: str) -> int | None:
+        """
+        Returns the case ID of an image scan violation.
+        """
+        query = "SELECT case_id FROM img_scanner_cases WHERE guild_id=%s AND offender_id=%s AND img_hash=%s"
+        try:
+            with PostgreSQL.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (self.guild_id, offender_id, img_hash))
+                result = cur.fetchone()
+            return result[0] if result else None
+        except Exception as err:
+            logging.error(f"Could not get image scan case ID.", err)
+            return None
+
+    # noinspection PyMethodMayBeStatic
+    def get_img_scan_case_by_id(self, case_ID: int):
+        """
+        Returns the image scan case by the case ID.
+        """
+        query = "SELECT * FROM img_scanner_cases WHERE case_id=%s"
+        try:
+            with PostgreSQL.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (case_ID,))
+                result = cur.fetchone()
+            return result
+        except Exception as err:
+            logging.error(f"Could not get image scan case by ID.", err)
+            return None
+
+class OffensiveLangAuditLog:
+    def __init__(self, guid):
+        self.guild_id = guid
+
+    def add_offensive_lang_handling(self, offender_id: int, message: str) -> bool:
+        """
+        Records an offensive language violation and what Alice did about it.
+        """
+        assert isinstance(offender_id, int)
+        assert isinstance(message, str)
+
+        query = "INSERT INTO offensive_lang_cases (guild_id, offender_id, message) VALUES (%s, %s, %s)"
+        try:
+            with PostgreSQL.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (self.guild_id, offender_id, message))
+                conn.commit()
+            return True
+        except Exception as err:
+            logging.error(f"Could not add offensive language violation to the database.", err)
+            return False
+
 class PostgreSQL:
     @staticmethod
     def get_details() -> dict:
@@ -413,6 +500,7 @@ class PostgreSQL:
                 'antislur_enabled': 'BOOLEAN NOT NULL DEFAULT TRUE',
                 'antispam_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
                 'image_scanner_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                'civility_filter_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
                 'show_censored_substrings': 'BOOLEAN NOT NULL DEFAULT FALSE',
                 'do_censor_flagged_nsfw': 'BOOLEAN NOT NULL DEFAULT FALSE',
             },
@@ -423,7 +511,7 @@ class PostgreSQL:
             'guild_log_channels': {
                 'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
                 'channel_id': 'BIGINT DEFAULT NULL',
-                'enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                'enabled': 'BOOLEAN NOT NULL DEFAULT TRUE',
             },
             'img_scanner_cases': {
                 'case_id': 'SERIAL PRIMARY KEY',
@@ -437,12 +525,27 @@ class PostgreSQL:
                 'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
                 'channel_id': 'BIGINT DEFAULT NULL UNIQUE',
             },
-            'users': {
-                'user_id': 'BIGINT NOT NULL',
-                'reputation': 'INTEGER NOT NULL DEFAULT 50 CHECK (reputation >= 0 AND reputation <= 100)',
-                'last_rep_cooldown': 'BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)',
-                'infraction_count': 'INTEGER NOT NULL DEFAULT 0',
+            'offensive_lang_cases': {
+                'case_id': 'SERIAL PRIMARY KEY',
+                'guild_id': 'BIGINT NOT NULL',
+                'offender_id': 'BIGINT NOT NULL',
+                'message': 'TEXT NOT NULL',
+                'timestamp': 'BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)',
             },
+            'users': {
+                'user_id': 'BIGINT NOT NULL UNIQUE PRIMARY KEY',
+                'trust': 'INTEGER NOT NULL DEFAULT 50 CHECK (trust >= 0 AND trust <= 100)',
+                'trust_last_modified': 'BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)',
+            },
+            'user_infractions': {
+                'infraction_id': 'SERIAL PRIMARY KEY',
+                'timestamp': 'BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)',
+                'offender_id': 'BIGINT NOT NULL',
+                'moderator_id': 'BIGINT NOT NULL',
+                'guild_id': 'BIGINT NOT NULL',
+                'reason': 'TEXT NOT NULL',
+                'infraction_type': 'TEXT NOT NULL CHECK (infraction_type IN (\'strike\', \'mute\', \'kick\', \'ban\', \'delete\'))',
+            }
         }
 
         with PostgreSQL.get_connection() as conn:
@@ -578,6 +681,36 @@ class PostgreSQL:
             self.guild_id = int(guild_id)
             # Makes sure the guild is in the database
             PostgreSQL.db_tables.ensure_guild(int(guild_id))
+
+        def set_civility_filter_enabled(self, value: bool) -> bool:
+            """
+            Sets the value of the civility_filter_enabled column in the guilds table.
+            """
+            query = f"UPDATE guilds SET civility_filter_enabled=%s WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (bool(value), self.guild_id))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not set civility filter to {value} for {self.guild_id}.", err)
+                return False
+
+        def get_civility_filter_enabled(self) -> bool:
+            """
+            Returns the value of the civility_filter_enabled column in the guilds table.
+            """
+            query = f"SELECT civility_filter_enabled FROM guilds WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchone()[0]
+                return result
+            except Exception as err:
+                logging.error(f"Could not get civility filter for {self.guild_id}.", err)
+                return False
 
         def get_do_censor_flagged_nsfw(self) -> bool:
             """
@@ -917,98 +1050,120 @@ class PostgreSQL:
             """
             This is a class meant to track internally what AliceAM has done in a guild.
             May not be comprehensive, but it's a start.
-            """
-            self.guild_id = guild_id
 
-        def add_image_scan_handling(self, offender_id: int, img: Image) -> bool:
+            :param guild_id: The guild ID to track.
             """
-            Records an image scan violation and what Alice did about it.
-            """
-            assert isinstance(offender_id, int)
-            assert isinstance(img, Image.Image)
+            self.guid = guild_id
 
-            # Convert the image to byte data
-            img_byte_arr = BytesIO()
-            img.save(img_byte_arr, format='JPEG')
-            img_byte_data = img_byte_arr.getvalue()
-
-            # Get the hash of the image
-            img_hash = imagehash.average_hash(img)
-
-            query = "INSERT INTO img_scanner_cases (guild_id, offender_id, img_hash, bytedata) VALUES (%s, %s, %s, %s)"
-            try:
-                with PostgreSQL.get_connection() as conn:
-                    cur = conn.cursor()
-                    cur.execute(query, (self.guild_id, offender_id, str(img_hash), img_byte_data))
-                    conn.commit()
-                return True
-            except Exception as err:
-                logging.error(f"Could not add image scan violation to the database.", err)
-                return False
-
-        def get_caseid_for_img_scan(self, offender_id: int, img_hash: str) -> int | None:
-            """
-            Returns the case ID of an image scan violation.
-            """
-            query = "SELECT case_id FROM img_scanner_cases WHERE guild_id=%s AND offender_id=%s AND img_hash=%s"
-            try:
-                with PostgreSQL.get_connection() as conn:
-                    cur = conn.cursor()
-                    cur.execute(query, (self.guild_id, offender_id, img_hash))
-                    result = cur.fetchone()
-                return result[0] if result else None
-            except Exception as err:
-                logging.error(f"Could not get image scan case ID.", err)
-                return None
-
-        # noinspection PyMethodMayBeStatic
-        def get_img_scan_case_by_id(self, case_ID: int):
-            """
-            Returns the image scan case by the case ID.
-            """
-            query = "SELECT * FROM img_scanner_cases WHERE case_id=%s"
-            try:
-                with PostgreSQL.get_connection() as conn:
-                    cur = conn.cursor()
-                    cur.execute(query, (case_ID,))
-                    result = cur.fetchone()
-                return result
-            except Exception as err:
-                logging.error(f"Could not get image scan case by ID.", err)
-                return None
+            # Does it this way so that both classes can be instantiated at the same time with the same shared variables
+            self.img_scan_logs = ImgScanAuditLog(guild_id)
+            self.offensive_lang_logs = OffensiveLangAuditLog(guild_id)
 
     # Not practical to make this DRY-Compliant, as the columns are different for each reputation type.
     # noinspection DuplicatedCode
     class users:
         def __init__(self, user_id: int) -> None:
             PostgreSQL.db_tables.ensure_user(user_id) # Makes sure the user is in the database
-            self.user_id = user_id
+            self.user_id = int(user_id)
 
-        def get_infraction_count(self) -> int:
+        def begin_quickact_punishment(self, guild_id:str, action:str) -> bool:
+            """
+            Begins tracking a quick-action punishment for a user.
+            """
+            from library.botapp import bot # Importing here to prevent circular imports
+
+            # Adds the punishment to the bot.d['quick-action-punishments'] dictionary
+            try:
+                bot.d['quick-action-punishments'][str(guild_id)]
+            except KeyError:
+                bot.d['quick-action-punishments'][str(guild_id)] = []
+
+            if action not in ['delete', 'kick']:
+                raise ValueError("Action must be one of 'delete' or 'kick'.")
+
+            bot.d['quick-action-punishments'][str(guild_id)].append({
+                'user_id': str(self.user_id),
+                'start_time': time.time(),
+                'action': action
+            })
+            return True
+
+        def get_active_punishments(self, guild_id) -> list:
+            """
+            Returns a list of all punishments that are currently in progress. (ie, not expired, or being done rn)
+
+            Gets quick-action punishments (such as delete and kick) from bot.d.
+            Gets long-term punishments (such as mute and ban) from the database.
+
+            :return: A list of dictionaries with the keys 'type' and 'action'.
+            """
+            from library.botapp import bot  # Importing here to prevent circular imports
+
+            try:
+                bot.d['quick-action-punishments'][str(guild_id)]
+            except KeyError:
+                bot.d['quick-action-punishments'][str(guild_id)] = []
+
+            punish_list = []
+
+            punishments_guild = bot.d['quick-action-punishments'][str(guild_id)]
+
+            # Filter out the punishments that are not for the user
+            punishments = [punishment for punishment in punishments_guild if punishment['user_id'] == str(self.user_id)]
+
+            # Add quick-action punishments to the list
+            for punishment in punishments:
+                punish_list.append({
+                    'type': 'quick-action',
+                    'action': punishment['action'],
+                })
+
+            # TODO: Get long-term punishments from the database
+
+            return punish_list
+
+        def get_infraction_count(self, from_date: datetime.datetime = None) -> int:
             """
             Returns the number of infractions a user has.
             """
-            query = "SELECT infraction_count FROM users WHERE user_id=%s"
+            query = "SELECT COUNT(*) FROM user_infractions WHERE offender_id=%s"
+            params = (self.user_id,)
+
+            if from_date:
+                query += " AND timestamp >= %s"
+                params = params + (from_date.timestamp(),)
+
             try:
                 with PostgreSQL.get_connection() as conn:
                     cur = conn.cursor()
-                    cur.execute(query, (self.user_id,))
+                    cur.execute(query, params)
                     result = cur.fetchone()
                 return result[0] if result else 0
             except Exception as err:
                 logging.error(f"Could not get infraction count for user {self.user_id}.", err)
                 return 0
 
-        def add_infraction(self) -> bool:
+        def add_infraction(self, moderator_id: int, guild_id: int, reason: str, infraction_type: str, return_case_id: bool) -> bool:
             """
             Adds an infraction to a user.
             """
-            query = "UPDATE users SET infraction_count = infraction_count + 1 WHERE user_id=%s"
+            assert isinstance(moderator_id, int), "Moderator ID must be an integer."
+            assert isinstance(guild_id, int), "Guild ID must be an integer."
+            assert isinstance(reason, str), "Reason must be a string."
+            if not infraction_type in ['strike', 'mute', 'kick', 'ban', 'delete']:
+                raise ValueError("Infraction type must be one of 'strike', 'mute', 'kick', 'ban', or 'delete'.")
+            query = """
+            INSERT INTO user_infractions
+            (offender_id, moderator_id, guild_id, reason, infraction_type)
+            VALUES (%s, %s, %s, %s, %s) RETURNING infraction_id
+            """
             try:
                 with PostgreSQL.get_connection() as conn:
                     cur = conn.cursor()
-                    cur.execute(query, (self.user_id,))
+                    cur.execute(query, (self.user_id, moderator_id, guild_id, reason, infraction_type))
                     conn.commit()
+                    if return_case_id:
+                        return cur.fetchone()[0]
                 return True
             except Exception as err:
                 logging.error(f"Could not add infraction for user {self.user_id}.", err)
@@ -1018,7 +1173,7 @@ class PostgreSQL:
             """
             Returns the reputation of a user.
             """
-            query = "SELECT reputation FROM users WHERE user_id=%s"
+            query = "SELECT trust FROM users WHERE user_id=%s"
             try:
                 with PostgreSQL.get_connection() as conn:
                     cur = conn.cursor()
@@ -1026,18 +1181,45 @@ class PostgreSQL:
                     result = cur.fetchone()
                 return result[0] if result else 50
             except Exception as err:
-                logging.error(f"Could not get reputation for user {self.user_id}.", err)
+                logging.error(f"Could not get trust for user {self.user_id}.", err)
                 return 50
 
-        def modify_reputation(self, value: int|float, operator: str) -> bool:
+        def modify_trust(self, value: int | float, operator: str, apply_cooldown=True) -> bool:
             if not operator in ['=', '+', '-']:
                 raise ValueError("Operator must be one of '=', '+', or '-'.")
-            if type(value) is not int:
+            if type(value) is not int and type(value) is not float:
                 raise TypeError("Value must be an integer.")
 
             # It's safe to use f-strings here, as the operator can only be +, - or = and the user can't change it.
-            query = f"UPDATE users SET reputation = reputation {operator} %s WHERE user_id=%s"
+            query = f"UPDATE users SET trust = trust {operator} %s WHERE user_id=%s"
 
+            # If apply_cooldown, set the last time the user's trust was modified
+            if apply_cooldown:
+                # if the trust is on cooldown (last modified within 15 seconds), return False
+                # Helps to prevent multiple systems (eg, antislur and antiswear) seeing the user say 'Hi'
+                # and giving them +0.5 trust twice.
+                last_modification = self.get_trust_last_modified()
+                if time.time() - last_modification < 15:
+                    return False
+
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (value, self.user_id))
+                    conn.commit()
+
+                # Sets the last time the user's trust was modified
+                self.set_trust_last_modified(datetime.datetime.now().timestamp())
+                return True
+            except Exception as err:
+                logging.error(f"Could not modify trust for user {self.user_id}.", err)
+                return False
+
+        def set_trust_last_modified(self, value: datetime.datetime.timestamp) -> bool:
+            """
+            Sets the last time the user's trust was modified in a POSIX timestamp.
+            """
+            query = "UPDATE users SET trust_last_modified = %s WHERE user_id=%s"
             try:
                 with PostgreSQL.get_connection() as conn:
                     cur = conn.cursor()
@@ -1045,14 +1227,14 @@ class PostgreSQL:
                     conn.commit()
                 return True
             except Exception as err:
-                logging.error(f"Could not modify reputation for user {self.user_id}.", err)
+                logging.error(f"Could not set last trust modification time for user {self.user_id}.", err)
                 return False
 
-        def get_last_rep_cooldown(self) -> int|float:
+        def get_trust_last_modified(self) -> int | float:
             """
-            Returns the last time the user gave reputation.
+            Returns the last time the user's trust was modified in a POSIX timestamp.
             """
-            query = "SELECT last_rep_cooldown FROM users WHERE user_id=%s"
+            query = "SELECT trust_last_modified FROM users WHERE user_id=%s"
             try:
                 with PostgreSQL.get_connection() as conn:
                     cur = conn.cursor()
@@ -1060,5 +1242,5 @@ class PostgreSQL:
                     result = cur.fetchone()
                 return result[0] if result else time.time()
             except Exception as err:
-                logging.error(f"Could not get last rep cooldown for user {self.user_id}.", err)
+                logging.error(f"Could not get last trust modification time for user {self.user_id}.", err)
                 return time.time()

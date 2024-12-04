@@ -13,9 +13,9 @@ def null_rep():
     for user_id in user_list:
         user = PostgreSQL.users(user_id)
 
-        last_cooldown_time = datetime.datetime.fromtimestamp(user.get_last_rep_cooldown())
+        last_cooldown_time = datetime.datetime.fromtimestamp(user.get_trust_last_modified())
         if last_cooldown_time < datetime.datetime.now() - datetime.timedelta(hours=12):
-            user.modify_reputation(5, "-")
+            user.modify_trust(5, "-")
 
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(lightbulb.Plugin(__name__))

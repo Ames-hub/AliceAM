@@ -1,7 +1,7 @@
-from library.botapp import bot, permissions
 from library.storage import PostgreSQL
 from library.variables import slurs
 from library.automod import automod
+from library.botapp import bot
 import lightbulb
 import datetime
 import hikari
@@ -32,29 +32,13 @@ class antislur(lightbulb.Plugin):
         ).rep_heuristic()
 
         user = PostgreSQL.users(event.author_id)
-        if Heuristic_check[0] is not False:
-            is_admin = await permissions.check(hikari.Permissions.ADMINISTRATOR, member=event.member, guid=event.guild_id)
-            # Punishes user for breaking the rule
-            user.modify_reputation(4, "-")
-        else:
+        if Heuristic_check[0] is False:
             # Reward user for not breaking the rule
-            user.modify_reputation(3, "+")
+            user.modify_trust(0.5, "+")
             return False
 
-        server_msg = automod.gen_user_warning_embed(
-            'AntiSlur Check Failed',
-            is_admin=is_admin,
-            check_result=Heuristic_check,
-            user_id=event.author_id
-        )
-
         punish_success = await antislur.punish(event)
-        if punish_success:
-            if is_admin:
-                await event.author.send(server_msg)
-            else:
-                await event.message.respond(server_msg)
-        else:
+        if not punish_success:
             await event.message.respond(
                 hikari.Embed(
                     title='AntiSlur Check Failed',
@@ -70,12 +54,13 @@ class antislur(lightbulb.Plugin):
     @staticmethod
     async def punish(event: hikari.GuildMessageCreateEvent):
         # Punish the member for saying a slur
-        success = False
-        try:
-            await event.message.delete()
-            success = True
-        except (hikari.ForbiddenError, hikari.NotFoundError, hikari.BadRequestError, hikari.UnauthorizedError):
-            pass
+        result = await automod.punish(
+            action='delete',
+            event=event,
+            dm_offender=False,
+            reason='Used a slur in their message.\n(Automod: AntiSlur)',
+        )
+        success = result.get('success')
         return success
 
 def load(bot: lightbulb.BotApp) -> None:

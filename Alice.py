@@ -2,6 +2,7 @@ from library.storage import var, dt, PostgreSQL
 from library.WebGUI.controller import gui
 from library.encrpytion import encryption
 import multiprocessing, os, hikari, sys
+from library import errors
 from typing import List
 import subprocess
 import datetime
@@ -30,11 +31,6 @@ colours = {
 }
 
 class alice:
-    class errors:
-        class exited_questioning(Exception):
-            def __str__(self):
-                return "The user exited the questioning."
-
     @staticmethod
     def setup():
         print(f"{colours['green']}Welcome to the setup wizard!{colours['reset']}")
@@ -146,7 +142,7 @@ class alice:
                     if allow_default:
                         answer = default
                 if answer == exit_phrase:
-                    raise alice.errors.exited_questioning
+                    raise errors.exited_questioning
 
                 # Check if the answer is valid
                 if confirm_validity:
@@ -171,7 +167,7 @@ class alice:
 
                 return answer
         except KeyboardInterrupt:
-            raise alice.errors.exited_questioning
+            raise errors.exited_questioning
 
 if __name__ == '__main__':
     if not os.path.exists('settings.json'):
@@ -187,6 +183,7 @@ if __name__ == '__main__':
     bot.load_extensions_from("cogs/automod/antiswear/")
     bot.load_extensions_from("cogs/automod/antispam/")
     bot.load_extensions_from("cogs/automod/image_scanner/")
+    bot.load_extensions_from("cogs/automod/offensive_lang/")
     bot.load_extensions_from("cogs/automod/staff_conf/")
     bot.load_extensions_from("cogs/automod/modcmds/")
     bot.load_extensions_from("cogs/error_handlers/")
@@ -212,6 +209,7 @@ if __name__ == '__main__':
     @bot.listen()
     async def on_ready(event: hikari.events.ShardReadyEvent):
         bot.d["bot_username"] = event.my_user.username
+        bot.d['bot_id'] = event.my_user.id
         print(f"{colours['green']}Bot is ready!{colours['reset']}")
         print(f"{colours['yellow']}Logged in as: {event.my_user.username}{colours['reset']}")
 

@@ -19,6 +19,7 @@ bot.d['colourless'] = hikari.Colour(0x2b2d31)
 bot.d['spam_logs'] = {}
 bot.d['spammers_punished'] = {}
 bot.d['permissions_cache'] = {}
+bot.d['quick-action-punishments'] = {}
 
 class permissions:
     @staticmethod
