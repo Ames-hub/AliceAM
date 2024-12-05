@@ -22,6 +22,90 @@ class automod:
         return censored_text
 
     @staticmethod
+    async def mute_member(user_id:int, guild_id:int, reason:str, until: datetime.datetime=None, infraction_id:int=None) -> dict:
+        """
+        Mutes a member in a guild for a certain amount of time.
+
+        Args:
+            :param user_id: (int): The ID of the user to mute.
+            :param guild_id: (int): The ID of the guild the user is in.
+            :param reason: (str): The reason for the mute.
+            :param until: (time.time): The time to unmute the user. Default is None.
+            :param infraction_id: (int): The ID of the infraction in the database. Default is None, which will create a new one.
+
+        Returns:
+            dict: {
+                'success': bool,
+                'attempted_to_create_role': bool,
+                'created_new_role': bool,
+                'case_id': int | None
+                'error': Exception | None
+            }
+        """
+        guild = PostgreSQL.guild(guild_id)
+        mute_role_id = guild.get_mute_role_id()
+        created_new_role = False
+        attempted_to_create_role = False
+        if mute_role_id is None:
+            # Make a mute role
+            attempted_to_create_role = True
+            try:
+                muted_role = await bot.rest.create_role(
+                    guild=hikari.Snowflake(guild_id),
+                    name="Muted",
+                    permissions=1115136, # View Channels, read msg history, connect only (no speaking)
+                )
+                created_new_role = True
+            except (hikari.errors.ForbiddenError, hikari.errors.UnauthorizedError, hikari.errors.NotFoundError) as err:
+                return {
+                    'success': False,
+                    'attempted_to_create_role': True,
+                    'created_new_role': False,
+                    'case_id': None,
+                    'error': err
+                }
+            muted_role_id = muted_role.id
+            guild.set_mute_role_id(muted_role_id)
+
+        try:
+            await bot.rest.add_guild_member_role(
+                guild=hikari.Snowflake(guild_id),
+                user=hikari.Snowflake(user_id),
+                role=hikari.Snowflake(mute_role_id)
+            )
+        except (hikari.errors.ForbiddenError, hikari.errors.UnauthorizedError, hikari.errors.NotFoundError) as err:
+            return {
+                'success': False,
+                'attempted_to_create_role': attempted_to_create_role,
+                'created_new_role': created_new_role,
+                'case_id': None,
+                'error': err
+            }
+
+        if not infraction_id:
+            infraction_id = PostgreSQL.users(user_id).add_infraction(
+                reason=reason,
+                moderator_id=bot.d['bot_id'],
+                infraction_type="mute",
+                guild_id=guild_id,
+                return_case_id=True
+            )
+
+        if until is not None:
+            guild.track_new_infraction_expiration(
+                infraction_id=infraction_id,
+                expiration_time=until
+            )
+
+        return {
+            'success': True,
+            'attempted_to_create_role': attempted_to_create_role,
+            'created_new_role': created_new_role,
+            'case_id': infraction_id,
+            'error': None
+        }
+
+    @staticmethod
     async def send_log_msg(content:str | hikari.Embed, guild_id:int) -> bool:
         """
         Sends a message to the guild's log channel.
@@ -49,7 +133,28 @@ class automod:
 
     @staticmethod
     async def send_member_dm(content:str | hikari.Embed, user_id:int) -> bool:
-        raise NotImplementedError
+        """
+        Sends a message to a user's DMs.
+
+        Args:
+            :param content: (str | hikari.Embed): The content to be sent.
+            :param user_id: (int): The ID of the user to send the message to.
+
+        Returns:
+            bool: True if the message was sent successfully, False if not.
+        """
+        assert content is not None, "Content must not be None."
+        assert user_id is not None, "User ID must not be None."
+        try:
+            await bot.rest.create_dm_message(
+                user=hikari.Snowflake(user_id),
+                content=content
+            )
+            return True
+        except hikari.errors.ForbiddenError:
+            return False
+        except hikari.errors.NotFoundError:
+            return False
 
     @staticmethod
     async def punish(
@@ -62,6 +167,7 @@ class automod:
             event: hikari.events.GuildMessageCreateEvent = None,  # Type-hint assumed. Most likely will be this.
             offender_id: int = None,
             guild_id: int = None,
+            mute_lasts_to: datetime.datetime = None,
             msg_id_for_deletion: int = None,
             custom_embed: hikari.Embed = None
     ) -> dict:
@@ -95,6 +201,7 @@ class automod:
             :param event: (hikari.events.GuildMessageCreateEvent): The event that triggered the punishment.
             :param offender_id: (int): The ID of the user to be punished. An alternative to providing ctx/event.
             :param guild_id: (int): The ID of the guild the user is in. An alternative to providing ctx/event.
+            :param mute_lasts_to: (datetime.datetime): The time to unmute the user. Default is None.
             :param msg_id_for_deletion: (int): The ID of the message to be deleted
             if the action is 'delete' and ctx/event is None
             :param custom_embed: (hikari.Embed): A custom embed to be sent to the log channel.
@@ -158,7 +265,6 @@ class automod:
                 'kick'
             ],
             # TODO: Make mute 'sticky' so a user can't leave and rejoin to get around it.
-            # TODO: Implement muting
             'mute': [
                 'ban',
                 'kick'
@@ -486,8 +592,63 @@ class automod:
             }
         elif action == 'mute':
             # Mute the user
-            raise NotImplementedError("Muting a user is not yet implemented.")
+            mute_result = await automod.mute_member(
+                user_id=offender_id,
+                guild_id=guild_id,
+                reason=reason,
+                infraction_id=None
+            )
 
+            mute_duration_posix = mute_lasts_to.timestamp()
+            embed = (
+                hikari.Embed(
+                    title="Member Muted",
+                    description=f"<@{offender_id}> has been muted until:\n**__<t:{mute_duration_posix}:F>__**.",
+                    color=bot.d['colourless'],
+                    timestamp=datetime.datetime.now().astimezone()
+                )
+                .set_author(  # Author is who got punished
+                    name=f"Offender: {offender.username}",
+                    icon=offender.avatar_url
+                )
+                .add_field(
+                    name="Reason provided",
+                    value=reason,
+                    inline=False
+                )
+            )
+
+            if dm_offender:
+                pm_success = await automod.send_member_dm(content=embed, user_id=offender_id)
+            else:
+                pm_success = False
+
+            log_success = await automod.send_log_msg(content=embed, guild_id=guild_id)
+
+            announced_successfully = False
+            if say_in_channel:
+                if event is not None:
+                    await event.message.respond(embed)
+                    announced_successfully = True
+
+            if not mute_result['success']:
+                return {
+                    'success': False,
+                    'error': mute_result['error'],
+                    'logging_success': log_success,
+                    'pm_success': pm_success,
+                    'announced_successfully': announced_successfully,
+                    'new_case_id': mute_result['case_id']
+                }
+
+            return {
+                'success': True,
+                'error': None,
+                'logging_success': log_success,
+                'pm_success': pm_success,
+                'announced_successfully': announced_successfully,
+                'new_case_id': mute_result['case_id']
+            }
 
     class text_checkers:
         def __init__(self, content: str, blacklist: list[str], account_for_rep: bool, user_id: int = None, guild_id: int = None) -> None:

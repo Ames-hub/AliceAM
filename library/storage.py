@@ -513,6 +513,10 @@ class PostgreSQL:
                 'channel_id': 'BIGINT DEFAULT NULL',
                 'enabled': 'BOOLEAN NOT NULL DEFAULT TRUE',
             },
+            'guild_mute_roles': {
+                'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
+                'role_id': 'BIGINT DEFAULT NULL',
+            },
             'img_scanner_cases': {
                 'case_id': 'SERIAL PRIMARY KEY',
                 'guild_id': 'BIGINT NOT NULL',
@@ -545,6 +549,11 @@ class PostgreSQL:
                 'guild_id': 'BIGINT NOT NULL',
                 'reason': 'TEXT NOT NULL',
                 'infraction_type': 'TEXT NOT NULL CHECK (infraction_type IN (\'strike\', \'mute\', \'kick\', \'ban\', \'delete\'))',
+            },
+            'infraction_durations': {
+                'infraction_id': 'BIGINT NOT NULL PRIMARY KEY REFERENCES user_infractions(infraction_id)',
+                'lasts_to': 'BIGINT NOT NULL', # Timestamp, POSIX
+                'expired': 'BOOLEAN NOT NULL DEFAULT FALSE',
             }
         }
 
@@ -681,6 +690,76 @@ class PostgreSQL:
             self.guild_id = int(guild_id)
             # Makes sure the guild is in the database
             PostgreSQL.db_tables.ensure_guild(int(guild_id))
+
+        def get_mute_role_id(self) -> int | None:
+            """
+            Returns the mute role ID for the guild.
+            """
+            query = "SELECT role_id FROM guild_mute_roles WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchone()
+                return result[0] if result else None
+            except Exception as err:
+                logging.error(f"Could not get mute role ID for {self.guild_id}.", err)
+                return None
+
+        def set_mute_role_id(self, role_id: int) -> bool:
+            """
+            Sets the mute role ID for the guild.
+            """
+            query = """
+            INSERT INTO guild_mute_roles (guild_id, role_id)
+            VALUES (%s, %s)
+            ON CONFLICT (guild_id) DO UPDATE SET role_id = EXCLUDED.role_id
+            """
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id, role_id))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not set mute role ID for {self.guild_id}.", err)
+                return False
+
+        # noinspection PyMethodMayBeStatic
+        def track_new_infraction_expiration(self, infraction_id: int, expiration_time: datetime.datetime) -> bool:
+            """
+            Tracks the expiration of new infractions.
+            """
+            query = "INSERT INTO infraction_durations (infraction_id, lasts_to) VALUES (%s, %s)"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (infraction_id, expiration_time.timestamp()))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not track infraction expiration.", err)
+                return False
+
+        # noinspection PyMethodMayBeStatic
+        def get_active_longterm_infractions(self) -> list:
+            """
+            Returns a list of all active longterm infractions.
+            """
+            query = """
+            SELECT infraction_id, lasts_to
+            FROM infraction_durations
+            WHERE expired = FALSE
+            """
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query)
+                    result = cur.fetchall()
+                return result
+            except Exception as err:
+                logging.error(f"Could not get active longterm infractions.", err)
+                return []
 
         def set_civility_filter_enabled(self, value: bool) -> bool:
             """
