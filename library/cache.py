@@ -8,15 +8,29 @@ class cache:
     @staticmethod
     def cache_perms(uuid, guid, permissions):
         bot.d['permissions_cache'][f'{uuid}-{guid}'] = permissions
+        return True
 
     @staticmethod
     def get_permissions(uuid, guid):
         try:
             data = bot.d['permissions_cache'][f'{uuid}-{guid}'] 
             return data # Returns the permissions if they exist
-        except:
+        except KeyError:
             return -1
-        
+
+    @staticmethod
+    def cache_dm_channel(user_id, channel_id):
+        bot.d['dm_cache'][user_id] = channel_id
+        return True
+
+    @staticmethod
+    def get_dm_channel(user_id):
+        try:
+            data = bot.d['dm_cache'][user_id]
+            return data
+        except KeyError:
+            return -1
+
     @staticmethod
     def clear_cache():
         bot.d['permissions_cache'] = {}

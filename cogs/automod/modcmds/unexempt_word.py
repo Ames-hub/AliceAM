@@ -3,7 +3,7 @@ from .group import mod_group
 import lightbulb, hikari
 
 @mod_group.child
-@lightbulb.app_command_permissions(dm_enabled=True)
+@lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option(
     name='word',
     description='The word to exempt from detections.',

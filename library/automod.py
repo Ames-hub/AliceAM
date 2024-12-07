@@ -3,6 +3,7 @@ from .variables import swears, slurs
 from difflib import SequenceMatcher
 from .storage import PostgreSQL
 from library import errors
+from .cache import cache
 from .botapp import bot
 
 class automod:
@@ -22,9 +23,57 @@ class automod:
         return censored_text
 
     @staticmethod
-    async def mute_member(user_id:int, guild_id:int, reason:str, until: datetime.datetime=None, infraction_id:int=None) -> dict:
+    def is_past_civility_fp(content: str) -> bool:
+        """
+        Checks if a message has been flagged before, but marked as a false-flag by a moderator or majority vote.
+        """
+        past_false_flags = PostgreSQL().get_past_civility_FPs()
+
+        for item_content in past_false_flags:
+            # To account for variations of the same message (different emoji's, symbols, etc.) we use a similarity ratio.
+            similarity = SequenceMatcher(None, content, item_content).ratio()
+            if similarity > 0.70:
+                return True
+        return False
+
+    @staticmethod
+    async def batch_delete_messages(channel_id, del_hours):
+        """
+        Deletes messages from a user in a guild.
+
+        Args:
+            :param channel_id: (int): The ID of the channel to delete messages from.
+            :param del_hours: (int): The amount of hours to delete messages from.
+        Returns:
+            bool: True if the messages were deleted successfully, False if not.
+        """
+        # Get the time to delete messages from
+        time_to_delete = datetime.datetime.now() - datetime.timedelta(hours=del_hours)
+        try:
+            messages = await bot.rest.fetch_messages(
+                channel=hikari.Snowflake(channel_id),
+                after=time_to_delete,
+            )
+
+            await bot.rest.delete_messages(
+                channel=hikari.Snowflake(channel_id),
+                messages=messages
+            )
+        except hikari.errors.ForbiddenError:
+            return False
+
+        return True
+
+    @staticmethod
+    async def mute_member(user_id:int, guild_id:int, reason:str, until: datetime.datetime, infraction_id:int=None) -> dict:
         """
         Mutes a member in a guild for a certain amount of time.
+
+        It handles the following jobs:
+        - Creating a mute role if one does not exist.
+        - Adding the mute role to the user.
+        - Tracking the expiration of the mute should it have one.
+        - Logging the mute in the database.
 
         Args:
             :param user_id: (int): The ID of the user to mute.
@@ -36,9 +85,13 @@ class automod:
         Returns:
             dict: {
                 'success': bool,
+
                 'attempted_to_create_role': bool,
+
                 'created_new_role': bool,
+
                 'case_id': int | None
+
                 'error': Exception | None
             }
         """
@@ -106,7 +159,7 @@ class automod:
         }
 
     @staticmethod
-    async def send_log_msg(content:str | hikari.Embed, guild_id:int) -> bool:
+    async def send_log_msg(content:str | hikari.Embed, guild_id:int) -> dict:
         """
         Sends a message to the guild's log channel.
 
@@ -115,24 +168,29 @@ class automod:
             :param guild_id: (int): The ID of the guild to send the message to.
 
         Returns:
-            bool: True if the message was sent successfully, False if not.
+            dict: {
+                'success': bool,
+
+                'msg_id': int | None
+            }
         """
         guild = PostgreSQL.guild(guild_id)
         if not guild.get_auditlog_enabled():
-            return False
+            return {'success': False, 'msg_id': None}
 
         channel_id = guild.get_auditlog_channel_id()
         if channel_id is None:
-            return False
+            return {'success': False, 'msg_id': None}
 
-        await bot.rest.create_message(
+        message = await bot.rest.create_message(
             channel=hikari.Snowflake(channel_id),
             content=content
         )
-        return True
+        print("msg_id send_log_msg:", message.id)
+        return {'success': True, 'msg_id': message.id}
 
     @staticmethod
-    async def send_member_dm(content:str | hikari.Embed, user_id:int) -> bool:
+    async def send_member_dm(content:str | hikari.Embed, user_id:int) -> dict:
         """
         Sends a message to a user's DMs.
 
@@ -141,20 +199,31 @@ class automod:
             :param user_id: (int): The ID of the user to send the message to.
 
         Returns:
-            bool: True if the message was sent successfully, False if not.
+            dict: {
+                'success': bool,
+
+                'error': Exception | None,
+
+                'msg_id': int | None,
+
+                'dm_channel': hikari.DMChannel | None,
+
+                'message': hikari.Message | None
+            }
         """
         assert content is not None, "Content must not be None."
         assert user_id is not None, "User ID must not be None."
         try:
-            await bot.rest.create_dm_message(
-                user=hikari.Snowflake(user_id),
-                content=content
-            )
-            return True
-        except hikari.errors.ForbiddenError:
-            return False
-        except hikari.errors.NotFoundError:
-            return False
+            # Checks the cache for the DM channel
+            dm_channel:hikari.DMChannel = cache.get_dm_channel(user_id)
+            if dm_channel == -1:
+                dm_channel = await bot.rest.create_dm_channel(hikari.Snowflake(user_id))
+                cache.cache_dm_channel(user_id, dm_channel.id)
+
+            message = await dm_channel.send(content)
+            return {'success': True, 'error': None, 'msg_id': message.id, 'dm_channel': dm_channel, 'message': message}
+        except (hikari.errors.UnauthorizedError, hikari.errors.ForbiddenError, hikari.errors.NotFoundError) as err:
+            return {'success': False, 'error': err, 'msg_id': None, 'dm_channel': None, 'message': None}
 
     @staticmethod
     async def punish(
@@ -169,7 +238,8 @@ class automod:
             guild_id: int = None,
             mute_lasts_to: datetime.datetime = None,
             msg_id_for_deletion: int = None,
-            custom_embed: hikari.Embed = None
+            custom_embed: hikari.Embed = None,
+            additional_fields: dict = None,
     ) -> dict:
         """
         Basically a wrapper function.
@@ -186,10 +256,18 @@ class automod:
         heuristic check. Causing an error, as it tries to delete the message twice, or ban the user twice.
         This is the prime reason for the fact that this function exists.
 
-        Handles the following placeholders:
-        - {user} - The user who broke the rules.
-        - {moderator} - The moderator who punished the user.
-        - {case_id} - The ID of the case in the database.
+        Handles the following placeholders for additional embed fields:
+        - % offender_username % - The user who broke the rules.
+        - % offender_id % - The ID of the user who broke the rules.
+        - % moderator_username % - The moderator who punished the user.
+        - % moderator_id % - The moderator ID of who punished the user.
+        - % channel_id % - The ID of the channel the message was sent in.
+        - % case_id % - The ID of the case in the database.
+        - % reason % - The reason for the punishment.
+
+        additional fields must be provided as:
+
+        >>> fields = {'additional_field_name_1': 'value', 'additional_field_name_2': 'value'...}
 
         Args:
             :param action: (str): The action to be taken. (delete, ban, mute)
@@ -205,6 +283,18 @@ class automod:
             :param msg_id_for_deletion: (int): The ID of the message to be deleted
             if the action is 'delete' and ctx/event is None
             :param custom_embed: (hikari.Embed): A custom embed to be sent to the log channel.
+            :param additional_fields: (dict): Additional fields to be added to the embed. Different from custom_embed
+            as it's added to the embed after the default fields are added. valid keys are: ['ANNOUNCEMENT', 'LOG', 'PM']
+
+        Format of additional_fields:
+        {
+            'ANNOUNCEMENT': {}
+            'LOG': {}
+            'PM': {}
+        }
+        To add fields to the announcement, log, or PM embed, run something like
+
+        >>> additional_fields = {'LOG': {'field_name': 'field_value'}...}
 
         Returns:
             {
@@ -219,6 +309,12 @@ class automod:
                 'pm_success': bool, (pm: Private Message)
 
                 'new_case_id': int | None,
+
+                'log_msg_id': int | None
+
+                'announcement_msg_id': int | None
+
+                'pm_msg_id': int | None
             }
 
         Raises:
@@ -252,6 +348,7 @@ class automod:
         elif ctx is not None:
             if offender_id is None:
                 raise AttributeError("Offender ID must not be None if ctx is not None.")
+            guild_id = ctx.guild_id
 
         # Check if the user is already being punished the same way or in a conflicting way
         conflicting_punishments = {
@@ -324,7 +421,10 @@ class automod:
                     'logging_success': False,
                     'pm_success': False,
                     'announced_successfully': False,
-                    'new_case_id': None
+                    'new_case_id': None,
+                    'log_msg_id': None,
+                    'announcement_msg_id': None,
+                    'pm_msg_id': None
                 }
 
             if custom_embed is None:
@@ -352,6 +452,49 @@ class automod:
             else:
                 embed = custom_embed
 
+            # Dupe these for "add_addition_fields_to" check.
+            pm_embed = embed
+
+            log_result = await automod.send_log_msg(content=embed, guild_id=guild_id)
+            log_success = log_result['success']
+            log_msg_id = log_result['msg_id']
+
+            if dm_offender:
+                if additional_fields is not None and 'PM' in additional_fields:
+                    for field_name, field_value in additional_fields['PM'].items():
+                        pm_embed.add_field(name=field_name, value=field_value)
+                pm_result = await automod.send_member_dm(content=pm_embed, user_id=offender_id)
+                pm_success = pm_result['success']
+                private_message: hikari.Message | None = pm_result['message']
+            else:
+                private_message = None
+                pm_success = False
+
+            announced_successfully = False
+            if say_in_channel:
+                announcement_embed = (
+                    hikari.Embed(
+                        title="Message Deleted",
+                        description=f"Please do not post content that violates the rules.",
+                        color=0xFF0000,
+                        timestamp=datetime.datetime.now().astimezone()
+                    )
+                )
+                if additional_fields is not None and 'ANNOUNCEMENT' in additional_fields:
+                    for field_name, field_value in additional_fields['ANNOUNCEMENT'].items():
+                        announcement_embed.add_field(name=field_name, value=field_value)
+
+                if event is not None:
+                    announcement: hikari.Message | None = await event.message.respond(announcement_embed)
+                    announced_successfully = True
+                else:
+                    # TODO: Ctx confuses this? Do some testing. Should be fine for now though.
+                    # noinspection PyTypeChecker
+                    announcement = await ctx.respond(announcement_embed)
+                    announced_successfully = True
+            else:
+                announcement = None
+
             # Remember the infraction in the database
             case_id = PostgreSQL.users(offender_id).add_infraction(
                 reason=reason,
@@ -361,35 +504,16 @@ class automod:
                 return_case_id=True
             )
 
-            log_success = await automod.send_log_msg(content=embed, guild_id=guild_id)
-
-            if dm_offender:
-                pm_success = await automod.send_member_dm(content=embed, user_id=offender_id)
-            else:
-                pm_success = False
-
-            announced_successfully = False
-            if say_in_channel:
-                if event is not None:
-                    announcement_embed = (
-                        hikari.Embed(
-                            title="Message Deleted",
-                            description=f"This message has been deleted.",
-                            color=0xFF0000,
-                            timestamp=datetime.datetime.now().astimezone()
-                        )
-                    )
-
-                    await event.message.respond(announcement_embed)
-                    announced_successfully = True
-
             return {
                 'success': True,
                 'error': None,
                 'logging_success': log_success,
                 'pm_success': pm_success,
                 'announced_successfully': announced_successfully,
-                'new_case_id': case_id
+                'new_case_id': case_id,
+                'log_msg_id': log_msg_id,
+                'announcement_msg_id': announcement.id if announcement is not None else None,
+                'pm_msg_id': private_message.id
             }
         elif action == 'ban':
             if custom_embed is None:
@@ -413,8 +537,13 @@ class automod:
             else:
                 embed = custom_embed
 
+            pm_embed = embed
+
             # PM Them before banning them since we can't PM them after they're banned
             if dm_offender:
+                if additional_fields is not None and 'PM' in additional_fields:
+                    for field_name, field_value in additional_fields['PM'].items():
+                        pm_embed.add_field(name=field_name, value=field_value)
                 pm_success = await automod.send_member_dm(content=embed, user_id=offender_id)
             else:
                 pm_success = False
@@ -481,6 +610,9 @@ class automod:
                             timestamp=datetime.datetime.now().astimezone()
                         )
                     )
+                    if additional_fields is not None and 'ANNOUCEMENT' in additional_fields:
+                        for field_name, field_value in additional_fields['ANNOUNCEMENT'].items():
+                            announcement_embed.add_field(name=field_name, value=field_value)
 
                     await event.message.respond(announcement_embed)
                     announced_successfully = True
@@ -515,8 +647,13 @@ class automod:
             else:
                 embed = custom_embed
 
+            pm_embed = embed
+
             # PM Them before kicking them since we can't PM them after they're kicked
             if dm_offender:
+                if additional_fields is not None and 'PM' in additional_fields:
+                    for field_name, field_value in additional_fields['PM'].items():
+                        pm_embed.add_field(name=field_name, value=field_value)
                 pm_success = await automod.send_member_dm(content=embed, user_id=offender_id)
             else:
                 pm_success = False
@@ -578,6 +715,9 @@ class automod:
                             timestamp=datetime.datetime.now().astimezone()
                         )
                     )
+                    if additional_fields is not None and 'ANNOUNCEMENT' in additional_fields:
+                        for field_name, field_value in additional_fields['ANNOUNCEMENT'].items():
+                            announcement_embed.add_field(name=field_name, value=field_value)
 
                     await event.message.respond(announcement_embed)
                     announced_successfully = True
@@ -592,11 +732,13 @@ class automod:
             }
         elif action == 'mute':
             # Mute the user
+            # Auto-creates the infraction ID if it's not provided
             mute_result = await automod.mute_member(
                 user_id=offender_id,
                 guild_id=guild_id,
                 reason=reason,
-                infraction_id=None
+                infraction_id=None,
+                until=mute_lasts_to
             )
 
             mute_duration_posix = mute_lasts_to.timestamp()
@@ -618,8 +760,13 @@ class automod:
                 )
             )
 
+            pm_embed = embed
+
             if dm_offender:
                 pm_success = await automod.send_member_dm(content=embed, user_id=offender_id)
+                if additional_fields is not None and 'PM' in additional_fields:
+                    for field_name, field_value in additional_fields['PM'].items():
+                        pm_embed.add_field(name=field_name, value=field_value)
             else:
                 pm_success = False
 
@@ -628,6 +775,17 @@ class automod:
             announced_successfully = False
             if say_in_channel:
                 if event is not None:
+                    announcement_embed = (
+                        hikari.Embed(
+                            title="Member Muted",
+                            description=f"<@{offender_id}> has been muted until:\n**__<t:{mute_duration_posix}:F>__**.",
+                            color=0xFF0000,
+                            timestamp=datetime.datetime.now().astimezone()
+                        )
+                    )
+                    if additional_fields is not None and 'ANNOUNCEMENT' in additional_fields:
+                        for field_name, field_value in additional_fields['ANNOUNCEMENT'].items():
+                            announcement_embed.add_field(name=field_name, value=field_value)
                     await event.message.respond(embed)
                     announced_successfully = True
 

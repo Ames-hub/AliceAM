@@ -7,18 +7,18 @@ import hikari
 
 keys = encryption()
 
-INTENTS = hikari.Intents.ALL
-
 bot = lightbulb.BotApp(
     token=keys.decrypt(var.get(file='settings.json', key='token')),
     prefix=var.get(file='settings.json', key='prefix'),
-    intents=INTENTS
+    # TODO: Figure out which intents are actually needed.
+    intents=hikari.Intents.ALL,
 )
 tasks.load(bot)
 bot.d['colourless'] = hikari.Colour(0x2b2d31)
 bot.d['spam_logs'] = {}
 bot.d['spammers_punished'] = {}
 bot.d['permissions_cache'] = {}
+bot.d['dm_cache'] = {}
 bot.d['quick-action-punishments'] = {}
 
 class permissions:

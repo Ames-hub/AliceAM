@@ -1,3 +1,5 @@
+import hikari
+
 from library.encrpytion import encryption
 from library.variables import logging
 from io import BytesIO
@@ -28,10 +30,11 @@ class dt:
     # For localsetting.json
     SETTINGS = {
         'token': None,
-        'use_postgre': False,
         'first_start': True,
         'prefix': "//",
-        'postgre': {
+        # Bot admins will have access to developer commands.
+        'bot_admins': [913574723475083274],
+        'db': {
             'host': None,
             'port': None,
             'database': None,
@@ -39,7 +42,6 @@ class dt:
             'password': None,
         },
     }
-
 
 # noinspection DuplicatedCode,PyTypeChecker,PyShadowingNames
 class var:
@@ -268,16 +270,15 @@ class ImgScanAuditLog:
             logging.error(f"Could not get image scan case ID.", err)
             return None
 
-    # noinspection PyMethodMayBeStatic
-    def get_img_scan_case_by_id(self, case_ID: int):
+    def get_case_by_id(self, case_ID: int):
         """
         Returns the image scan case by the case ID.
         """
-        query = "SELECT * FROM img_scanner_cases WHERE case_id=%s"
+        query = "SELECT * FROM img_scanner_cases WHERE case_id=%s AND guild_id=%s"
         try:
             with PostgreSQL.get_connection() as conn:
                 cur = conn.cursor()
-                cur.execute(query, (case_ID,))
+                cur.execute(query, (case_ID, self.guild_id,))
                 result = cur.fetchone()
             return result
         except Exception as err:
@@ -287,6 +288,21 @@ class ImgScanAuditLog:
 class OffensiveLangAuditLog:
     def __init__(self, guid):
         self.guild_id = guid
+
+    def set_falsepositve_status(self, status: bool, case_id: int) -> bool:
+        """
+        Sets the false positive status of an offensive language case.
+        """
+        query = "UPDATE offensive_lang_cases SET false_positive=%s WHERE case_id=%s AND guild_id=%s"
+        try:
+            with PostgreSQL.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (status, case_id, self.guild_id))
+                conn.commit()
+            return True
+        except Exception as err:
+            logging.error(f"Could not set false positive status.", err)
+            return False
 
     def add_offensive_lang_handling(self, offender_id: int, message: str) -> bool:
         """
@@ -305,6 +321,53 @@ class OffensiveLangAuditLog:
         except Exception as err:
             logging.error(f"Could not add offensive language violation to the database.", err)
             return False
+
+    def get_case_by_id(self, case_id) -> dict | None:
+        """
+        Returns the offensive language case by the case ID.
+
+        :param case_id: The case ID to get the case by.
+
+        :return: A dictionary with the case information.
+
+        format:
+        {
+            'case_id': int,
+
+            'guild_id': int,
+
+            'offender_id': int,
+
+            'message': str,
+
+            'timestamp': int,
+
+            'false_positive': bool
+        }
+        """
+        query = "SELECT * FROM offensive_lang_cases WHERE case_id=%s AND guild_id=%s"
+        assert isinstance(case_id, int)
+        try:
+            with PostgreSQL.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (case_id, self.guild_id))
+                result = cur.fetchone()
+            # There should only be one result as case_id is a unique primary key
+            if result is None:
+                return None
+        except Exception as err:
+            logging.error(f"Could not get offensive language case by ID.", err)
+            return None
+
+        # Filter result into a dictionary.
+        return {
+            'case_id': result[0],
+            'guild_id': result[1],
+            'offender_id': result[2],
+            'message': result[3],
+            'timestamp': result[4],
+            'false_positive': result[5]
+        }
 
 class PostgreSQL:
     @staticmethod
@@ -503,6 +566,7 @@ class PostgreSQL:
                 'civility_filter_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
                 'show_censored_substrings': 'BOOLEAN NOT NULL DEFAULT FALSE',
                 'do_censor_flagged_nsfw': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                'pub_crowdsourced_ratings_enabled': 'BOOLEAN NOT NULL DEFAULT TRUE',
             },
             'guild_word_whitelist': {
                 'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
@@ -534,6 +598,20 @@ class PostgreSQL:
                 'guild_id': 'BIGINT NOT NULL',
                 'offender_id': 'BIGINT NOT NULL',
                 'message': 'TEXT NOT NULL',
+                'timestamp': 'BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)',
+                'false_positive': 'BOOLEAN NOT NULL DEFAULT FALSE',
+            },
+            'offensive_lang_tracked_polls': {
+                'case_id': 'BIGINT NOT NULL PRIMARY KEY REFERENCES offensive_lang_cases(case_id)',
+                'message_id': 'BIGINT NOT NULL',
+                'downvote_threshold': 'INTEGER NOT NULL',
+                'guild_id': 'BIGINT NOT NULL',
+            },
+            'offensive_lang_result_ratings': {
+                'rating_id': 'SERIAL PRIMARY KEY',
+                'case_id': 'BIGINT NOT NULL REFERENCES offensive_lang_cases(case_id)',
+                'rating': 'TEXT NOT NULL CHECK (rating IN (\'ACCURATE\', \'INCORRECT\'))',
+                'voter_id': 'BIGINT NOT NULL',
                 'timestamp': 'BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT)',
             },
             'users': {
@@ -594,6 +672,124 @@ class PostgreSQL:
 
             # Commit the changes
             conn.commit()
+
+    def fetch_civility_polls(self):
+        """
+        Fetches all civility polls that are being listened to.
+        """
+        query = "SELECT message_id, case_id, downvote_threshold, guild_id FROM offensive_lang_tracked_polls"
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query)
+                result = cur.fetchall()
+            # Formats into a dictionary with the message ID as the key
+            return_val = {}
+            for tuple_item in result:
+                return_val[tuple_item[0]] = {
+                    'message_id': tuple_item[0],
+                    'case_id': tuple_item[1],
+                    'downvote_threshold': tuple_item[2],
+                    'guild_id': tuple_item[3]
+                }
+            return return_val
+        except Exception as err:
+            logging.error(f"Could not fetch civility polls.", err)
+            return []
+
+    def fetch_civility_polls_voters(self, case_id):
+        """
+        Fetches all the voters for a civility poll.
+        """
+        query = "SELECT voter_id, rating FROM offensive_lang_result_ratings WHERE case_id=%s"
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (case_id,))
+                result = cur.fetchall()
+            return result
+        except Exception as err:
+            logging.error(f"Could not fetch civility poll voters.", err)
+            return []
+
+    async def track_new_civility_report_ratings(self, message_id, case_id, down_threshold, guild_id, msg_obj=None) -> bool:
+        """
+        Adds civility report polls to the database.
+        """
+        query = "INSERT INTO offensive_lang_tracked_polls (case_id, message_id, downvote_threshold, guild_id) VALUES (%s, %s, %s, %s)"
+        if message_id is None:
+            return False
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (case_id, message_id, down_threshold, guild_id))
+                conn.commit()
+        except Exception as err:
+            logging.error(f"Could not track civility report poll.", err)
+            return False
+
+        # Reacts with thumbs up and thumbs down to the message. This is done to make it easier for users to vote.
+        if msg_obj is not None:
+            try:
+                await msg_obj.add_reaction('👍')
+                await msg_obj.add_reaction('👎')
+            except (hikari.ForbiddenError, hikari.NotFoundError, hikari.UnauthorizedError) as err:
+                logging.error(f"Could not add reactions to the message.", err)
+                return False
+
+        return True
+
+    def vote_civility_poll(self, case_id:int, voter_id:int, rating:str) -> bool:
+        """
+        Adds a vote to the list on if a civility filter was a False Positive or not.
+        """
+        query = "INSERT INTO offensive_lang_result_ratings (case_id, rating, voter_id) VALUES (%s, %s, %s)"
+        if rating != 'ACCURATE' and rating != 'INCORRECT':
+            return False
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (case_id, rating, voter_id))
+                conn.commit()
+            return True
+        except Exception as err:
+            logging.error(f"Could not report civility result vote.", err)
+            return False
+
+    def unvote_civility_poll(self, case_id:int, voter_id:int) -> bool:
+        """
+        Removes a vote from the list on if a civility filter was a False Positive or not.
+        """
+        query = "DELETE FROM offensive_lang_result_ratings WHERE case_id=%s AND voter_id=%s"
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query, (case_id, voter_id))
+                conn.commit()
+            return True
+        except Exception as err:
+            logging.error(f"Could not remove civility result vote.", err)
+            return False
+
+    def get_past_civility_FPs(self):
+        """
+        Returns a list of all past civility filter false positives.
+        """
+        query = "SELECT message FROM offensive_lang_cases WHERE false_positive=TRUE"
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(query)
+                result = cur.fetchall()
+
+            result_list = []
+            for row in result:
+                result_list.append(row[0])
+
+            return result_list
+        except Exception as err:
+            logging.error(f"Could not get past civility filter false positives.", err)
+            return []
 
     def img_scan_history(self, img_hash):
         """
@@ -690,6 +886,21 @@ class PostgreSQL:
             self.guild_id = int(guild_id)
             # Makes sure the guild is in the database
             PostgreSQL.db_tables.ensure_guild(int(guild_id))
+
+        def pub_crowdsourced_ratings_enabled(self) -> bool:
+            """
+            Returns if public crowdsourced ratings are enabled for the guild.
+            """
+            query = "SELECT pub_crowdsourced_ratings_enabled FROM guilds WHERE guild_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.guild_id,))
+                    result = cur.fetchone()[0]
+                return result
+            except Exception as err:
+                logging.error(f"Could not get public crowdsourced ratings for {self.guild_id}.", err)
+                return False
 
         def get_mute_role_id(self) -> int | None:
             """
@@ -1136,7 +1347,7 @@ class PostgreSQL:
 
             # Does it this way so that both classes can be instantiated at the same time with the same shared variables
             self.img_scan_logs = ImgScanAuditLog(guild_id)
-            self.offensive_lang_logs = OffensiveLangAuditLog(guild_id)
+            self.civility_logs = OffensiveLangAuditLog(guild_id)
 
     # Not practical to make this DRY-Compliant, as the columns are different for each reputation type.
     # noinspection DuplicatedCode
@@ -1222,9 +1433,18 @@ class PostgreSQL:
                 logging.error(f"Could not get infraction count for user {self.user_id}.", err)
                 return 0
 
-        def add_infraction(self, moderator_id: int, guild_id: int, reason: str, infraction_type: str, return_case_id: bool) -> bool:
+        def add_infraction(self, moderator_id: int, guild_id: int, reason: str, infraction_type: str, return_case_id: bool) -> bool | int:
             """
             Adds an infraction to a user.
+
+            :param moderator_id: The ID of the moderator who issued the infraction.
+            :param guild_id: The ID of the guild where the infraction was issued.
+            :param reason: The reason for the infraction.
+            :param infraction_type: The type of infraction. One of 'strike', 'mute', 'kick', 'ban', or 'delete'.
+            :param return_case_id: Whether to return the case ID of the infraction.
+
+            :return bool: True if the infraction was added successfully, False otherwise.
+            :return int: The case ID of the infraction if return_case_id (int) is True.
             """
             assert isinstance(moderator_id, int), "Moderator ID must be an integer."
             assert isinstance(guild_id, int), "Guild ID must be an integer."
@@ -1242,7 +1462,8 @@ class PostgreSQL:
                     cur.execute(query, (self.user_id, moderator_id, guild_id, reason, infraction_type))
                     conn.commit()
                     if return_case_id:
-                        return cur.fetchone()[0]
+                        data = cur.fetchone()
+                        return data[0]
                 return True
             except Exception as err:
                 logging.error(f"Could not add infraction for user {self.user_id}.", err)
@@ -1290,6 +1511,9 @@ class PostgreSQL:
                 # Sets the last time the user's trust was modified
                 self.set_trust_last_modified(datetime.datetime.now().timestamp())
                 return True
+            except psycopg2.errors.CheckViolation:
+                # If the trust is set to a value outside the 0-100 range, return False
+                return False
             except Exception as err:
                 logging.error(f"Could not modify trust for user {self.user_id}.", err)
                 return False

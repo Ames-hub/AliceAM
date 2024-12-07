@@ -25,6 +25,7 @@ AliceAM has a variety of Qualities and Features, some of which include
 - Easily able to add custom commands/plugins
 - No obfuscation of code
 - Easy to set up
+- Alice Learns from You.
 
 [Click me to see the full feature list](https://github.com/Ames-hub/AliceAM/blob/main/documentation/FEATURES.md)
 

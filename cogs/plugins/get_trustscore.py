@@ -39,11 +39,12 @@ async def get_trust_score(ctx: lightbulb.SlashContext) -> None:
     trust_ratio = check_user.get_trust()
     infraction_count = check_user.get_infraction_count(from_date=datetime.datetime.now() - datetime.timedelta(days=365))
 
-    def trust_reword(ratio, username:str|None):
+    # Don't take this too seriously. It's just a 'vanity' thing for higher trust scores.
+    def trust_reword(trust_score, username: str | None):
         if username is not None:
             if username == bot.d['bot_username']:
                 return "I'd say I'm quite trustworthy, wouldn't you agree? :D"
-        if ratio >= 100:
+        if trust_score >= 100:
             if infraction_count == 0:
                 return "Spotless record!"
             else:
@@ -51,7 +52,7 @@ async def get_trust_score(ctx: lightbulb.SlashContext) -> None:
                     return "Reformed, and trustworthy as of present."
                 else:
                     return "Reformed troublemaker."
-        elif ratio >= 90:
+        elif trust_score >= 90:
             if infraction_count == 0:
                 return "Consistently Trustworthy"
             else:
@@ -59,12 +60,12 @@ async def get_trust_score(ctx: lightbulb.SlashContext) -> None:
                     return "Mostly Trustworthy, with a few hiccups."
                 else:
                     return "Trustworthy, but has a history of trouble."
-        elif ratio >= 70:
+        elif trust_score >= 70:
             if infraction_count < 15:
                 return "Trustworthy"
             else:
                 return "Trustworthy, recently reformed."
-        elif ratio >= 50:
+        elif trust_score >= 50:
             if infraction_count <= 5:
                 return "Uncertain? Not enough data."
             else:
@@ -72,12 +73,12 @@ async def get_trust_score(ctx: lightbulb.SlashContext) -> None:
                     return "Untrustworthy, but has potential."
                 else:
                     return "Untrustworthy, potentially reformed."
-        elif ratio < 50:
-            return "Potential Trouble Source. AI methods implemented to identify harmful behavior." # Messages will be looked at by an AI without context.
-        elif ratio <= 40:
-            return "Trouble source. Messages will be monitored."  # Below 40, messages will be logged and sent with context to an AI.
-        elif ratio <= 10:
-            return "Trouble source. Will not follow rules. Likely troll."
+        elif trust_score < 50:
+            return "Potential Trouble Source.\nAI methods implemented to identify harmful behavior."
+        elif trust_score <= 40:
+            return "Known Trouble source.\nConsistently breaks rules."
+        elif trust_score <= 10:
+            return "Trouble source.\nBetter off not interacting with this user."
 
     # Finds the amount for the trust ratio until it reaches 100.
     distrust_ratio = 100 - trust_ratio

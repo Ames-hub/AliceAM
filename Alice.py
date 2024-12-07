@@ -1,12 +1,64 @@
-from library.storage import var, dt, PostgreSQL
-from library.WebGUI.controller import gui
-from library.encrpytion import encryption
-import multiprocessing, os, hikari, sys
-from library import errors
-from typing import List
-import subprocess
-import datetime
-import logging
+import os
+has_attempted_import = False
+while True:
+    try:
+        from library.storage import var, dt, PostgreSQL
+        from library.WebGUI.controller import gui
+        from library.encrpytion import encryption
+        import multiprocessing, os, hikari, sys
+        from library import errors
+        from typing import List
+        import subprocess
+        import datetime
+        import logging
+        import dotenv
+    except ModuleNotFoundError:
+        # TODO: Test on Windows and Linux
+        # This is the first-time setup if the required modules are not installed
+        colours = {
+            'red': '\033[31m',
+            'yellow': '\033[33m',
+            'green': '\033[32m',
+            'purple': '\033[35m',
+            'reset': '\033[0m',
+        }
+
+        if has_attempted_import:  # Prevents an infinite loop if the required modules are not installed properly
+            print(f"{colours['red']}An unhandled error occurred while trying to import the required modules.{colours['reset']}")
+            exit(1)
+
+        print(f"{colours['green']}Hello! It seems like this is your first time running me.{colours['reset']}")
+        print(f"{colours['yellow']}I will now get the project ready for you.{colours['reset']}")
+
+        # Test python3.12 exists on the system. And ensure this project is running on python3.12
+        python3_path = "python3.12"
+        if os.system("python3.12 --version") != 0:
+            print(f"{colours['red']}We can't find python3.12 on your system{colours['reset']}")
+            print("Where is your python3.12 executable located? (provide full path)")
+            python3_path = input(">>> ")
+            if not os.path.exists(python3_path):
+                print(f"{colours['red']}The path you provided does not exist.{colours['reset']}")
+                exit(1)
+
+        # Make a virtual environment
+        os.system(f"{python3_path} -m venv venv")
+        python3_path = os.path.join("venv", "bin" if os.name != 'nt' else 'Scripts', "python.exe")
+
+        # Install the required modules
+        os.system(f"{python3_path} -m pip install -r requirements.txt")
+
+        # Loop back to the top to import the modules
+        # This re-imports the modules, and the program will start successfully
+
+        has_attempted_import = True
+        continue
+
+    if has_attempted_import:
+        print("The project is now ready!")
+    # If the required modules are installed, break out of the loop
+    break
+
+dotenv.load_dotenv('.env')
 
 keys = encryption()
 
@@ -186,6 +238,7 @@ if __name__ == '__main__':
     bot.load_extensions_from("cogs/automod/offensive_lang/")
     bot.load_extensions_from("cogs/automod/staff_conf/")
     bot.load_extensions_from("cogs/automod/modcmds/")
+    bot.load_extensions_from("cogs/devcmds/")
     bot.load_extensions_from("cogs/error_handlers/")
     bot.load_extensions_from("cogs/tasks_dir/")
     if len(os.listdir("cogs/plugins/")) != 0:
@@ -205,6 +258,15 @@ if __name__ == '__main__':
     os.system('clear' if is_linux else 'cls')
     logging.info("Bot is starting...")
     logging.info("Running on Linux? : " + str(is_linux) + f" ({sys.platform})")
+
+    # A sort of hack-way to reveal the database password since it's encrypted.
+    # Useful for debugging.
+    reveal_db_pass = os.environ.get("REVEAL_DB_PASS", None)
+    if reveal_db_pass is not None:
+        if bool(reveal_db_pass):
+            print("Env variable detected: REVEAL_DB_PASS = True")
+            print(f"{colours['yellow']}Revealing the database password...{colours['reset']}")
+            print(f"{colours['yellow']}Database password: {keys.decrypt(var.get(file='settings.json', key='db.password'))}{colours['reset']}")
 
     @bot.listen()
     async def on_ready(event: hikari.events.ShardReadyEvent):
