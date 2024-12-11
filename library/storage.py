@@ -605,7 +605,7 @@ class PostgreSQL:
                 'false_positive': 'BOOLEAN NOT NULL DEFAULT FALSE',
             },
             'offensive_lang_tracked_polls': {
-                'case_id': 'BIGINT NOT NULL PRIMARY KEY REFERENCES offensive_lang_cases(case_id)',
+                'case_id': 'BIGINT NOT NULL PRIMARY KEY offensive_lang_cases(case_id)',
                 'message_id': 'BIGINT NOT NULL',
                 'downvote_threshold': 'INTEGER NOT NULL',
                 'guild_id': 'BIGINT NOT NULL',
@@ -727,7 +727,7 @@ class PostgreSQL:
         try:
             with self.get_connection() as conn:
                 cur = conn.cursor()
-                cur.execute(query, (case_id, message_id, down_threshold, guild_id))
+                cur.execute(query, (int(case_id), int(message_id), int(down_threshold), int(guild_id)))
                 conn.commit()
         except Exception as err:
             logging.error(f"Could not track civility report poll.", err)

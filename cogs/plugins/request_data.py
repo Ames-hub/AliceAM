@@ -5,6 +5,7 @@ import datetime
 import asyncio
 import logging
 import hikari
+import base64
 import io
 
 def format_user_data_to_string(user_pg, user_infractions_pg, infraction_durations_pg, civility_votes_pg, civility_cases_pg, img_cases_pg):
@@ -24,10 +25,10 @@ def format_user_data_to_string(user_pg, user_infractions_pg, infraction_duration
         for infraction in user_infractions_pg:
             formatted_data.append(f"    Infraction ID: {infraction[0]}")
             formatted_data.append(f"    Timestamp: {datetime.datetime.fromtimestamp(infraction[1]).strftime('%Y-%m-%d %H:%M:%S')}")
-            formatted_data.append(f"    Moderator ID: {infraction[2]}")
-            formatted_data.append(f"    Guild ID: {infraction[3]}")
-            formatted_data.append(f"    Reason: {infraction[4]}")
-            formatted_data.append(f"    Type: {infraction[5]}")
+            formatted_data.append(f"    Offender ID: {infraction[2]}")
+            formatted_data.append(f"    Moderator ID: {infraction[3]}")
+            formatted_data.append(f"    Guild ID: {infraction[4]}")
+            formatted_data.append(f"    Reason: {infraction[5]}")
             formatted_data.append("")
     else:
         formatted_data.append("    No infractions found.")
@@ -70,7 +71,7 @@ def format_user_data_to_string(user_pg, user_infractions_pg, infraction_duration
             formatted_data.append(f"    Offender ID: {case[2]}")
             formatted_data.append(f"    Message: {case[3]}")
             formatted_data.append(f"    Timestamp: {datetime.datetime.fromtimestamp(case[4]).strftime('%Y-%m-%d %H:%M:%S')}")
-            formatted_data.append(f"    False Positive: {case[5]}")
+            formatted_data.append(f"    Known FP?: {case[5]}")
             formatted_data.append("")
     else:
         formatted_data.append("    No civility cases found.")
@@ -78,13 +79,23 @@ def format_user_data_to_string(user_pg, user_infractions_pg, infraction_duration
 
     # Format image scan cases
     formatted_data.append("Image Scan Cases data table:")
-    if len(img_cases_pg) != 0:
+    img_cases_pg_count = len(img_cases_pg)
+    if img_cases_pg_count != 0:
         for img_case in img_cases_pg:
             formatted_data.append(f"    Case ID: {img_case[0]}")
             formatted_data.append(f"    Guild ID: {img_case[1]}")
             formatted_data.append(f"    Offender ID: {img_case[2]}")
             formatted_data.append(f"    Image Hash: {img_case[3]}")
-            formatted_data.append(f"    Timestamp: {datetime.datetime.fromtimestamp(img_case[4]).strftime('%Y-%m-%d %H:%M:%S')}")
+
+            # Converts img bytes to a Base64 string. img_case[4] is a memoryview object.
+            if img_cases_pg_count < 200:
+                img_bytes = base64.b64encode(img_case[4].tobytes()).decode("utf-8")
+            else:
+                # Discord limits us to ~5mb for an attachment, so we can't send too many images' byte data.
+                img_bytes = "Too many images to display :("
+
+            formatted_data.append(f"    Image Bytes (BASE64): {img_bytes}")
+            formatted_data.append(f"    Timestamp: {datetime.datetime.fromtimestamp(img_case[5]).strftime('%Y-%m-%d %H:%M:%S')}")
             formatted_data.append("")
     else:
         formatted_data.append("    No image scan cases found.")

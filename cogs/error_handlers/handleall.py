@@ -28,6 +28,8 @@ async def on_error(event: lightbulb.CommandErrorEvent) -> None:
         await event.context.respond("You need to attach a file to run this command.", flags=hikari.MessageFlag.EPHEMERAL)
     elif isinstance(event.exception, lightbulb.errors.CommandNotFound):
         pass # Ignore this error, since it is not a problem.
+    elif isinstance(event.exception, hikari.errors.NotFoundError):
+        await event.context.respond("Something went wrong with the interaction.\nPlease run the command again.", flags=hikari.MessageFlag.EPHEMERAL)
     else:
         await event.context.respond("An error occurred while running this command :(\nPlease try again later once we solve the problem.", flags=hikari.MessageFlag.EPHEMERAL)
         raise event.exception

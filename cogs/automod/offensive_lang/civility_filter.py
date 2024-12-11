@@ -103,18 +103,18 @@ class civility_plugin(lightbulb.Plugin):
             # Wait a bit. Debug method
             if log_msg_id is not None:
                 await PostgreSQL().track_new_civility_report_ratings(
-                    message_id=log_msg_id,
+                    message_id=int(log_msg_id),
                     down_threshold = 3,  # 3 Admins/Mods must agree that it was a false positive.
-                    case_id=result.get('new_case_id'),
-                    guild_id=event.guild_id
+                    case_id=int(result.get('new_case_id')),
+                    guild_id=int(event.guild_id)
                 )
             if announcement_msg_id is not None:
                 if pub_crowdsourcing_allowed:
                     await PostgreSQL().track_new_civility_report_ratings(
-                        message_id=announcement_msg_id,
+                        message_id=int(announcement_msg_id),
                         down_threshold = 10,
-                        case_id=result.get('new_case_id'),
-                        guild_id=event.guild_id
+                        case_id=int(result.get('new_case_id')),
+                        guild_id=int(event.guild_id)
                     )
 
         success = result.get('success')
