@@ -17,6 +17,13 @@ But also a bot, which anyone can easily selfhost and add their own plugins to wi
 Alice is meant to be able to make use of cutting-edge methods in moderation, including but not limited to
 Machine Learning AI, Trust-Distrust systems, and more.
 
+[Terms of Service](https://pastebin.com/iE13b8fA)<br>
+[Privacy Policy](https://pastebin.com/AD2iJw5i)
+
+### Disclaimer
+Alice does not at any point use your data to Train AI models, and data never leaves the
+AliceAM network. For more information, please view the privacy policy.
+
 # Features
 AliceAM has a variety of Qualities and Features, some of which include
 - AutoModeration (Experimental)
