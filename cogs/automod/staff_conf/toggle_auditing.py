@@ -3,7 +3,7 @@ from .group import config_group
 import lightbulb, hikari
 
 @config_group.child
-@lightbulb.app_command_permissions(dm_enabled=True)
+@lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option(
     name='enabled',
     description='Whether to enable or disable the image scanner.',

@@ -239,6 +239,7 @@ if __name__ == '__main__':
     bot.load_extensions_from("cogs/automod/staff_conf/")
     bot.load_extensions_from("cogs/automod/modcmds/")
     bot.load_extensions_from("cogs/devcmds/")
+    bot.load_extensions_from("cogs/help_cmds/")
     bot.load_extensions_from("cogs/error_handlers/")
     bot.load_extensions_from("cogs/tasks_dir/")
     if len(os.listdir("cogs/plugins/")) != 0:
@@ -261,12 +262,17 @@ if __name__ == '__main__':
 
     # A sort of hack-way to reveal the database password since it's encrypted.
     # Useful for debugging.
-    reveal_db_pass = os.environ.get("REVEAL_DB_PASS", None)
-    if reveal_db_pass is not None:
-        if bool(reveal_db_pass):
-            print("Env variable detected: REVEAL_DB_PASS = True")
-            print(f"{colours['yellow']}Revealing the database password...{colours['reset']}")
-            print(f"{colours['yellow']}Database password: {keys.decrypt(var.get(file='settings.json', key='db.password'))}{colours['reset']}")
+    reveal_db_pass = os.environ.get("REVEAL_DB_PASS", False)
+    if bool(reveal_db_pass):
+        print("Env variable detected: REVEAL_DB_PASS = True")
+        print(f"{colours['yellow']}Revealing the database password...{colours['reset']}")
+        print(f"{colours['yellow']}Database password: {keys.decrypt(var.get(file='settings.json', key='db.password'))}{colours['reset']}")
+
+    reveal_token = os.environ.get("REVEAL_TOKEN", False)
+    if bool(reveal_token):
+        print("Env variable detected REVEAL_TOKEN = True")
+        print(f"{colours['yellow']}Revealing the bot token...{colours['reset']}")
+        print(f"{colours['yellow']}Bot token: {keys.decrypt(var.get('token'))}{colours['reset']}")
 
     @bot.listen()
     async def on_ready(event: hikari.events.ShardReadyEvent):

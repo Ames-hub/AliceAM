@@ -3,7 +3,7 @@ from .group import antiswear_group
 import lightbulb, hikari, logging
 
 @antiswear_group.child
-@lightbulb.app_command_permissions(dm_enabled=True)
+@lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option(
     name='enabled',
     description='Enable (True) or disable (False) the antiswear system.',

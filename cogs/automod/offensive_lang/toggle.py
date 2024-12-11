@@ -3,7 +3,7 @@ from .group import ofd_lang_group
 import lightbulb, hikari, logging
 
 @ofd_lang_group.child
-@lightbulb.app_command_permissions(dm_enabled=True)
+@lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option(
     name='enabled',
     description='Enable (True) or disable (False) the offensive language detection / civility system.',

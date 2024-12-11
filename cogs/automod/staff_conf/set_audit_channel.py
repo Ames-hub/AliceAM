@@ -3,7 +3,7 @@ from .group import config_group
 import lightbulb, hikari
 
 @config_group.child
-@lightbulb.app_command_permissions(dm_enabled=True)
+@lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option(
     name='channel',
     description='The channel to log actions to.',
@@ -24,7 +24,7 @@ async def audit_log_set(ctx: lightbulb.SlashContext) -> None:
         if channel.type != hikari.ChannelType.GUILD_TEXT:
             raise TypeError
 
-        success = guild.set_auditlog_channel_id(int(channel))
+        success = guild.set_log_channel_id(int(channel))
     except TypeError:
         await ctx.respond("The Input was not a text-channel. Please try again.")
         return

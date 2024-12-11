@@ -45,6 +45,8 @@ async def inspect_cmd(ctx: lightbulb.SlashContext) -> None:
         )
     )
 
+    guild = PostgreSQL.guild(ctx.guild_id)
+
     if case_type == "img-scan":
         data = PostgreSQL.audit_log(ctx.guild_id).img_scan_logs.get_case_by_id(case_id)
         if data is None:
@@ -72,7 +74,6 @@ async def inspect_cmd(ctx: lightbulb.SlashContext) -> None:
             )
         )
 
-        guild = PostgreSQL.guild(ctx.guild_id)
         attachment = hikari.Bytes(img_byte_arr, 'flagged.jpeg', spoiler=True)
         censor_nsfw = guild.get_do_censor_flagged_nsfw()
 
@@ -94,6 +95,7 @@ async def inspect_cmd(ctx: lightbulb.SlashContext) -> None:
 
         img_scan_data = audit_logs.img_scan_logs.get_case_by_id(case_id)
 
+        censor_nsfw = guild.get_do_censor_flagged_nsfw()
         if img_scan_data is not None:
             img_scan = {
                 "offender_id": img_scan_data[2],
@@ -111,7 +113,9 @@ async def inspect_cmd(ctx: lightbulb.SlashContext) -> None:
                       "Violating image attached.",
                 inline=False
             )
-            embed.set_thumbnail(hikari.Bytes(img_scan['img_bytes'], 'flagged.jpeg'))
+
+            if not censor_nsfw:
+                embed.set_thumbnail(hikari.Bytes(img_scan['img_bytes'], 'flagged.jpeg'))
 
         # Pre-filtered into a dictionary. No need to do it here.
         civility_data = audit_logs.civility_logs.get_case_by_id(case_id)
@@ -133,7 +137,15 @@ async def inspect_cmd(ctx: lightbulb.SlashContext) -> None:
             )
             return
 
-        await ctx.respond(embed=embed, flags=hikari.MessageFlag.EPHEMERAL)
+        if img_scan_data is not None:
+            attachment = hikari.Bytes(
+                img_scan_data,
+                "flagged.png",
+                spoiler=True
+            )
+        else:
+            attachment = None
+        await ctx.respond(embed=embed, flags=hikari.MessageFlag.EPHEMERAL, attachment=attachment if censor_nsfw else None)
 
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(lightbulb.Plugin(__name__))

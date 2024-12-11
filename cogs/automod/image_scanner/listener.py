@@ -91,7 +91,7 @@ async def listener(event: hikari.events.GuildMessageCreateEvent) -> bool:
 
             # Send the deleted image to the logs channel.
             if guild.get_auditlog_enabled():
-                log_channel_id = guild.get_auditlog_channel_id()
+                log_channel_id = guild.get_log_channel_id()
                 if log_channel_id is not None:
                     log_channel = bot.cache.get_guild_channel(log_channel_id)
 
@@ -131,7 +131,7 @@ async def listener(event: hikari.events.GuildMessageCreateEvent) -> bool:
 
             # Log that the image was sent to the logs channel.
             if guild.get_auditlog_enabled():
-                log_channel_id = guild.get_auditlog_channel_id()
+                log_channel_id = guild.get_log_channel_id()
                 if log_channel_id is not None:
                     log_channel = bot.cache.get_guild_channel(log_channel_id)
 

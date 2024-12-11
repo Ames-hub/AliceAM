@@ -541,7 +541,10 @@ class PostgreSQL:
                 time_waited += 1
                 time.sleep(1)
             return psycopg2.connect(**PostgreSQL.get_details())
-
+        # Handles the password being invalid
+        except psycopg2.ProgrammingError as err:
+            logging.error('The password for the database is invalid.', exc_info=True)
+            raise err
     @staticmethod
     def ping_db():
         try:
@@ -632,6 +635,8 @@ class PostgreSQL:
                 'infraction_id': 'BIGINT NOT NULL PRIMARY KEY REFERENCES user_infractions(infraction_id)',
                 'lasts_to': 'BIGINT NOT NULL', # Timestamp, POSIX
                 'expired': 'BOOLEAN NOT NULL DEFAULT FALSE',
+                'action': 'TEXT NOT NULL CHECK (action IN (\'mute\', \'ban\'))',
+                'offender_id': 'BIGINT NOT NULL',
             }
         }
 
@@ -876,7 +881,19 @@ class PostgreSQL:
             result = cur.fetchall()
         return [user[0] for user in result]
 
-    # noinspection DuplicatedCode
+    @staticmethod
+    def list_known_guilds():
+        """
+        Returns a list of all known guilds in the database.
+        """
+        query = "SELECT guild_id FROM guilds"
+        with PostgreSQL.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(query)
+            result = cur.fetchall()
+        return [guild[0] for guild in result]
+
+    # noinspection DuplicatedCode,PyMethodMayBeStatic
     class guild:
         def __init__(self, guild_id: int) -> None:
             """
@@ -886,6 +903,34 @@ class PostgreSQL:
             self.guild_id = int(guild_id)
             # Makes sure the guild is in the database
             PostgreSQL.db_tables.ensure_guild(int(guild_id))
+
+        def set_expired_lt_infraction(self, infraction_id: int, status:bool=True) -> bool:
+            """
+            Expires a longterm infraction.
+            """
+            # Ensures the infraction DOES exist
+            query = "SELECT EXISTS (SELECT 1 FROM infraction_durations WHERE infraction_id=%s)"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (infraction_id,))
+                    result = cur.fetchone()
+                if not result[0]:
+                    return False
+            except KeyError as err:
+                logging.error(f"Could not expire longterm infraction.", err)
+                return False
+
+            query = "UPDATE infraction_durations SET expired=%s WHERE infraction_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (bool(status), int(infraction_id),))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not expire longterm infraction.", err)
+                return False
 
         def pub_crowdsourced_ratings_enabled(self) -> bool:
             """
@@ -937,15 +982,35 @@ class PostgreSQL:
                 return False
 
         # noinspection PyMethodMayBeStatic
-        def track_new_infraction_expiration(self, infraction_id: int, expiration_time: datetime.datetime) -> bool:
+        def begin_new_infraction_expiration(self, infraction_id: int, expiration_time: datetime.datetime | int) -> bool:
             """
             Tracks the expiration of new infractions.
             """
-            query = "INSERT INTO infraction_durations (infraction_id, lasts_to) VALUES (%s, %s)"
+            if expiration_time == -1 or expiration_time is None:
+                expiration_time = -1
+            elif type(expiration_time) == datetime.datetime:
+                expiration_time = expiration_time.timestamp()
+            else:
+                raise TypeError("expiration_time must be a datetime.datetime object or -1.")
+
+            # From the infraction ID, get the action
+            query = "SELECT infraction_type, offender_id FROM user_infractions WHERE infraction_id=%s"
             try:
                 with PostgreSQL.get_connection() as conn:
                     cur = conn.cursor()
-                    cur.execute(query, (infraction_id, expiration_time.timestamp()))
+                    cur.execute(query, (infraction_id,))
+                    result = cur.fetchone()
+                action = result[0]
+                offender_id = result[1]
+            except Exception as err:
+                logging.error(f"Could not get infraction type for infraction ID {infraction_id}.", err)
+                return False
+
+            query = "INSERT INTO infraction_durations (infraction_id, lasts_to, offender_id, action) VALUES (%s, %s, %s, %s)"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (infraction_id, expiration_time, offender_id, action))
                     conn.commit()
                 return True
             except Exception as err:
@@ -953,12 +1018,15 @@ class PostgreSQL:
                 return False
 
         # noinspection PyMethodMayBeStatic
-        def get_active_longterm_infractions(self) -> list:
+        def get_active_lt_infractions(self) -> list:
             """
             Returns a list of all active longterm infractions.
+
+            format:
+            list[dictionary{infraction_id, lasts_to, action, offender_id}]
             """
             query = """
-            SELECT infraction_id, lasts_to
+            SELECT infraction_id, lasts_to, action, offender_id
             FROM infraction_durations
             WHERE expired = FALSE
             """
@@ -967,7 +1035,18 @@ class PostgreSQL:
                     cur = conn.cursor()
                     cur.execute(query)
                     result = cur.fetchall()
-                return result
+
+                # Formats the result into a list of dictionaries
+                return_val = []
+                for row in result:
+                    return_val.append({
+                        'infraction_id': row[0],
+                        'lasts_to': row[1],
+                        'action': row[2],
+                        'offender_id': row[3]
+                    })
+                return return_val
+
             except Exception as err:
                 logging.error(f"Could not get active longterm infractions.", err)
                 return []
@@ -1265,7 +1344,7 @@ class PostgreSQL:
                 logging.error(f"Could not get show_censored_substrings_ok for {self.guild_id}.", err)
                 return False
 
-        def get_auditlog_channel_id(self):
+        def get_log_channel_id(self):
             """
             Returns the value of the log_channel_id column in the guilds table.
             """
@@ -1280,7 +1359,7 @@ class PostgreSQL:
                 logging.error(f"Could not get log channel ID for {self.guild_id}.", err)
                 return None
 
-        def set_auditlog_channel_id(self, channel_id: int) -> bool:
+        def set_log_channel_id(self, channel_id: int) -> bool:
             """
             Sets the value of the log_channel_id column in the guild_log_channels table.
             If the row does not exist, it will be created.
@@ -1350,11 +1429,29 @@ class PostgreSQL:
             self.civility_logs = OffensiveLangAuditLog(guild_id)
 
     # Not practical to make this DRY-Compliant, as the columns are different for each reputation type.
-    # noinspection DuplicatedCode
+    # noinspection DuplicatedCode,PyMethodMayBeStatic
     class users:
         def __init__(self, user_id: int) -> None:
             PostgreSQL.db_tables.ensure_user(user_id) # Makes sure the user is in the database
             self.user_id = int(user_id)
+
+        def begin_lt_punishment(self, guild_id: int, duration: int, infraction_id: int) -> bool:
+            """
+            Begins a long-term punishment for a user by adding an infraction to the database.
+            """
+            # converts duration from posix to datetime
+            if duration != -1:
+                datetime_obj = datetime.datetime.fromtimestamp(duration)
+            else:
+                datetime_obj = -1
+
+            # Shortcut function basically
+            guild = PostgreSQL.guild(guild_id)
+            value = guild.begin_new_infraction_expiration(
+                infraction_id=infraction_id,
+                expiration_time=datetime_obj
+            )
+            return value
 
         def begin_quickact_punishment(self, guild_id:str, action:str) -> bool:
             """
@@ -1398,7 +1495,7 @@ class PostgreSQL:
 
             punishments_guild = bot.d['quick-action-punishments'][str(guild_id)]
 
-            # Filter out the punishments that are not for the user
+            # Get only the punishments for the user in question
             punishments = [punishment for punishment in punishments_guild if punishment['user_id'] == str(self.user_id)]
 
             # Add quick-action punishments to the list
@@ -1408,7 +1505,14 @@ class PostgreSQL:
                     'action': punishment['action'],
                 })
 
-            # TODO: Get long-term punishments from the database
+            active_lt_punishments = PostgreSQL.guild(guild_id).get_active_lt_infractions()
+            for punishment in active_lt_punishments:
+                if punishment['offender_id'] != self.user_id:
+                    continue
+                punish_list.append({
+                    'type': 'long-term',
+                    'action': punishment['action']
+                })
 
             return punish_list
 

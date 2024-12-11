@@ -65,6 +65,38 @@ class automod:
         return True
 
     @staticmethod
+    async def set_mute_role(guild_id:int) -> dict:
+        """
+        Creates, then sets a mute role for a guild.
+
+        Args:
+            :param guild_id: (int): The ID of the guild to create the role in.
+        Returns:
+            dict: {
+                'success': bool,
+
+                'role_id': int | None,
+
+                'error': Exception | None
+            }
+        """
+        try:
+            muted_role = await bot.rest.create_role(
+                guild=hikari.Snowflake(guild_id),
+                name="muted",
+                permissions=1115136, # View Channels, read msg history, connect only (no speaking)
+            )
+        except (hikari.errors.ForbiddenError, hikari.errors.UnauthorizedError, hikari.errors.NotFoundError) as err:
+            return {'success': False, 'role_id': None, 'error': err}
+
+        muted_role_id = muted_role.id
+
+        guild = PostgreSQL.guild(guild_id)
+        guild.set_mute_role_id(muted_role_id)
+
+        return {'success': True, 'role_id': muted_role_id, 'error': None}
+
+    @staticmethod
     async def mute_member(user_id:int, guild_id:int, reason:str, until: datetime.datetime, infraction_id:int=None) -> dict:
         """
         Mutes a member in a guild for a certain amount of time.
@@ -102,29 +134,24 @@ class automod:
         if mute_role_id is None:
             # Make a mute role
             attempted_to_create_role = True
-            try:
-                muted_role = await bot.rest.create_role(
-                    guild=hikari.Snowflake(guild_id),
-                    name="Muted",
-                    permissions=1115136, # View Channels, read msg history, connect only (no speaking)
-                )
-                created_new_role = True
-            except (hikari.errors.ForbiddenError, hikari.errors.UnauthorizedError, hikari.errors.NotFoundError) as err:
+            result = await automod.set_mute_role(guild_id)
+            if not result['success']:
                 return {
                     'success': False,
-                    'attempted_to_create_role': True,
-                    'created_new_role': False,
+                    'attempted_to_create_role': attempted_to_create_role,
+                    'created_new_role': created_new_role,
                     'case_id': None,
-                    'error': err
+                    'error': None
                 }
-            muted_role_id = muted_role.id
-            guild.set_mute_role_id(muted_role_id)
-
+            else:
+                mute_role_id = result['role_id']
+                created_new_role = True
         try:
-            await bot.rest.add_guild_member_role(
+            await bot.rest.add_role_to_member(
                 guild=hikari.Snowflake(guild_id),
                 user=hikari.Snowflake(user_id),
-                role=hikari.Snowflake(mute_role_id)
+                role=hikari.Snowflake(mute_role_id),
+                reason=f"Mute action. Reason provided: {reason}"
             )
         except (hikari.errors.ForbiddenError, hikari.errors.UnauthorizedError, hikari.errors.NotFoundError) as err:
             return {
@@ -145,7 +172,7 @@ class automod:
             )
 
         if until is not None:
-            guild.track_new_infraction_expiration(
+            guild.begin_new_infraction_expiration(
                 infraction_id=infraction_id,
                 expiration_time=until
             )
@@ -178,7 +205,7 @@ class automod:
         if not guild.get_auditlog_enabled():
             return {'success': False, 'msg_id': None}
 
-        channel_id = guild.get_auditlog_channel_id()
+        channel_id = guild.get_log_channel_id()
         if channel_id is None:
             return {'success': False, 'msg_id': None}
 
@@ -236,7 +263,7 @@ class automod:
             event: hikari.events.GuildMessageCreateEvent = None,  # Type-hint assumed. Most likely will be this.
             offender_id: int = None,
             guild_id: int = None,
-            mute_lasts_to: datetime.datetime = None,
+            mute_lasts_to: datetime.datetime | int = None,
             msg_id_for_deletion: int = None,
             custom_embed: hikari.Embed = None,
             additional_fields: dict = None,
@@ -351,21 +378,17 @@ class automod:
             guild_id = ctx.guild_id
 
         # Check if the user is already being punished the same way or in a conflicting way
+        # TODO: Handle when a muted user is kicked or banned.
         conflicting_punishments = {
             'delete': [], # No conflicting punishments
             'kick': [
-                'mute',
                 'ban'
             ],
             'ban': [
-                'mute',
                 'kick'
             ],
             # TODO: Make mute 'sticky' so a user can't leave and rejoin to get around it.
-            'mute': [
-                'ban',
-                'kick'
-            ],
+            'mute': [],
         }
 
         offender_data = PostgreSQL.users(offender_id)
@@ -377,11 +400,27 @@ class automod:
             if punishment['action'] in conflicting_punishments[action]:
                 raise errors.conflicting_punishments()
 
-        # It's not conflicting. Mark the user as being punished
-        offender_data.begin_quickact_punishment(
-            guild_id=str(guild_id),
-            action=action,
+        # Remember the infraction in the database
+        case_id = PostgreSQL.users(offender_id).add_infraction(
+            reason=reason,
+            moderator_id=moderator_id,
+            infraction_type=action,
+            guild_id=guild_id,
+            return_case_id=True
         )
+
+        # It's not conflicting. Mark the user as being punished
+        if action in ['delete', 'kick']:
+            offender_data.begin_quickact_punishment(
+                guild_id=str(guild_id),
+                action=action,
+            )
+        else:
+            offender_data.begin_lt_punishment(
+                guild_id=int(guild_id),
+                duration=mute_lasts_to,
+                infraction_id=case_id,
+            )
 
         # Degrade user trust for breaking the rules
         offender_data.modify_trust(4, "-")
@@ -495,15 +534,6 @@ class automod:
             else:
                 announcement = None
 
-            # Remember the infraction in the database
-            case_id = PostgreSQL.users(offender_id).add_infraction(
-                reason=reason,
-                moderator_id=moderator_id,
-                infraction_type=action,
-                guild_id=guild_id,
-                return_case_id=True
-            )
-
             return {
                 'success': True,
                 'error': None,
@@ -587,15 +617,6 @@ class automod:
                     'announced_successfully': False,
                     'new_case_id': None
                 }
-
-            # Remember the infraction in the database
-            case_id = PostgreSQL.users(offender_id).add_infraction(
-                reason=reason,
-                moderator_id=moderator_id,
-                infraction_type=action,
-                guild_id=guild_id,
-                return_case_id=True
-            )
 
             log_success = await automod.send_log_msg(content=embed, guild_id=guild_id)
 
@@ -693,15 +714,6 @@ class automod:
                     'new_case_id': None
                 }
 
-            # Remember the infraction in the database
-            case_id = PostgreSQL.users(offender_id).add_infraction(
-                reason=reason,
-                moderator_id=moderator_id,
-                infraction_type=action,
-                guild_id=guild_id,
-                return_case_id=True
-            )
-
             log_success = await automod.send_log_msg(content=embed, guild_id=guild_id)
 
             announced_successfully = False
@@ -741,11 +753,17 @@ class automod:
                 until=mute_lasts_to
             )
 
-            mute_duration_posix = mute_lasts_to.timestamp()
+            if mute_lasts_to != -1:
+                mute_duration_posix = mute_lasts_to.timestamp()
+                desc = f"<@{offender_id}> has been muted until:\n**__<t:{mute_duration_posix}:F>__**."
+            else:
+                mute_duration_posix = None
+                desc = f"<@{offender_id}> has been muted until further notice."
+
             embed = (
                 hikari.Embed(
                     title="Member Muted",
-                    description=f"<@{offender_id}> has been muted until:\n**__<t:{mute_duration_posix}:F>__**.",
+                    description=desc,
                     color=bot.d['colourless'],
                     timestamp=datetime.datetime.now().astimezone()
                 )
@@ -775,10 +793,15 @@ class automod:
             announced_successfully = False
             if say_in_channel:
                 if event is not None:
+                    if mute_duration_posix is not None:
+                        desc = f"<@{offender_id}> has been muted until:\n**__<t:{mute_duration_posix}:F>__**."
+                    else:
+                        desc = f"<@{offender_id}> has been muted until further notice."
+
                     announcement_embed = (
                         hikari.Embed(
                             title="Member Muted",
-                            description=f"<@{offender_id}> has been muted until:\n**__<t:{mute_duration_posix}:F>__**.",
+                            description=desc,
                             color=0xFF0000,
                             timestamp=datetime.datetime.now().astimezone()
                         )

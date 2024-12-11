@@ -5,7 +5,7 @@ from .group import config_group
 import lightbulb, hikari
 
 @config_group.child
-@lightbulb.app_command_permissions(dm_enabled=True)
+@lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option(
     name='hide',
     description='Should we hide the flagged images when requested?',

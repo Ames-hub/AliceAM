@@ -3,7 +3,7 @@ from .group import imgscanner_group
 import lightbulb, hikari, logging
 
 @imgscanner_group.child
-@lightbulb.app_command_permissions(dm_enabled=True)
+@lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option(
     name='channel',
     description='The channel to exempt from Image Scanning.',

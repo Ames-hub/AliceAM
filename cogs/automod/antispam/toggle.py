@@ -13,11 +13,17 @@ import lightbulb, hikari, logging
 @lightbulb.add_cooldown(bucket=lightbulb.buckets.GuildBucket, length=10, uses=1)
 @lightbulb.add_checks(
     lightbulb.has_guild_permissions(hikari.Permissions.ADMINISTRATOR)
-    )
+)
 @lightbulb.command(name="toggle", description="Turn off or On the AntiSpam system.")
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def anti_spam_toggle_command(ctx: lightbulb.SlashContext) -> None:
     enabled:bool = ctx.options.enabled
+
+    # Let users disable, but not enable the system.
+    # TODO: Implement the Antispam system properly.
+    if enabled is True:
+        await ctx.respond("Apologies, but this system has not been fully implemented yet. Please try again later.")
+        return
 
     guild = PostgreSQL.guild(ctx.guild_id)
     try:

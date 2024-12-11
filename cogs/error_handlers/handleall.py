@@ -29,6 +29,7 @@ async def on_error(event: lightbulb.CommandErrorEvent) -> None:
     elif isinstance(event.exception, lightbulb.errors.CommandNotFound):
         pass # Ignore this error, since it is not a problem.
     else:
+        await event.context.respond("An error occurred while running this command :(\nPlease try again later once we solve the problem.", flags=hikari.MessageFlag.EPHEMERAL)
         raise event.exception
     
 def load(bot: lightbulb.BotApp) -> None:

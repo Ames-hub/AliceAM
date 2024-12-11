@@ -16,12 +16,14 @@ import lightbulb, hikari
     description='How many hours the user should be muted for.',
     required=False,
     type=hikari.OptionType.INTEGER,
+    default=0
 )
 @lightbulb.option(
     name='days',
     description='How many days the user should be muted for.',
     required=False,
     type=hikari.OptionType.INTEGER,
+    default=0
 )
 @lightbulb.option(
     name='reason',
@@ -56,7 +58,10 @@ async def mute_cmd(ctx: lightbulb.SlashContext) -> None:
         # Defaults to 3 days
         last_to = (datetime.now() + timedelta(days=3))
     else:
-        last_to = (datetime.now() + timedelta(hours=hours, days=days))
+        if hours == 0 and days == 0:  # If both are 0, default to permanent mute.
+            last_to = -1
+        else:
+            last_to = (datetime.now() + timedelta(hours=hours, days=days))
 
     result = await automod.punish(
         action="mute",
@@ -69,11 +74,18 @@ async def mute_cmd(ctx: lightbulb.SlashContext) -> None:
     case_id = result['new_case_id']
 
     if success:
-        embed = hikari.Embed(
-            title="Member Muted",
-            description=f"{victim.mention} has been muted until <t:{last_to}:F>\nCase ID: {case_id}",
-            color=hikari.Color(0x00FF00)
-        )
+        if last_to != -1:
+            embed = hikari.Embed(
+                title="Member Muted",
+                description=f"{victim.mention} has been muted until <t:{last_to}:F>\nCase ID: {case_id}",
+                color=hikari.Color(0x00FF00)
+            )
+        else:
+            embed = hikari.Embed(
+                title="Member Muted",
+                description=f"{victim.mention} has been muted until further notice.\nCase ID: {case_id}",
+                color=hikari.Color(0x00FF00)
+            )
     else:
         embed = hikari.Embed(
             title="Error",
