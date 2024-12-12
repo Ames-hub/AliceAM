@@ -1,4 +1,5 @@
 import os
+os.makedirs("logs", exist_ok=True)
 has_attempted_import = False
 while True:
     try:
@@ -236,8 +237,8 @@ if __name__ == '__main__':
     bot.load_extensions_from("cogs/automod/antispam/")
     bot.load_extensions_from("cogs/automod/image_scanner/")
     bot.load_extensions_from("cogs/automod/offensive_lang/")
-    bot.load_extensions_from("cogs/automod/staff_conf/")
-    bot.load_extensions_from("cogs/automod/modcmds/")
+    bot.load_extensions_from("cogs/staff_conf/")
+    bot.load_extensions_from("cogs/modcmds/")
     bot.load_extensions_from("cogs/devcmds/")
     bot.load_extensions_from("cogs/help_cmds/")
     bot.load_extensions_from("cogs/error_handlers/")

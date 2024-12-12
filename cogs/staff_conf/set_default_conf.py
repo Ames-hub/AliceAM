@@ -22,9 +22,16 @@ async def audit_log_set(ctx: lightbulb.SlashContext) -> None:
                 ctx.guild_id,
                 "alice-logs",
                 category=None,
-                reason="User request the bot to set its self up."
+                topic="This channel is used to log moderation actions taken by the bot AliceAM.",
+                reason="User request the bot to set its self up.",
             )
-        except (hikari.ForbiddenError, hikari.UnauthorizedError):
+            await channel.edit_overwrite(
+                # Deny all perms to @everyone, only the bot and admins can see it.
+                target=ctx.guild_id,
+                target_type=hikari.PermissionOverwriteType.ROLE,
+                deny=hikari.Permissions.all_permissions(),
+            )
+        except hikari.ForbiddenError:
             await ctx.respond("I do not have permission to create a new log channel. Please create one yourself, and use /config audit_channel to set it.")
             return
         action_list.append(f"Created a new log channel: {channel.mention}")

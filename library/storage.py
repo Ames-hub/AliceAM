@@ -605,7 +605,7 @@ class PostgreSQL:
                 'false_positive': 'BOOLEAN NOT NULL DEFAULT FALSE',
             },
             'offensive_lang_tracked_polls': {
-                'case_id': 'BIGINT NOT NULL PRIMARY KEY offensive_lang_cases(case_id)',
+                'case_id': 'BIGINT NOT NULL PRIMARY KEY',
                 'message_id': 'BIGINT NOT NULL',
                 'downvote_threshold': 'INTEGER NOT NULL',
                 'guild_id': 'BIGINT NOT NULL',
