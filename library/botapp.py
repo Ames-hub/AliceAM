@@ -20,6 +20,7 @@ bot.d['spammers_punished'] = {}
 bot.d['permissions_cache'] = {}
 bot.d['dm_cache'] = {}
 bot.d['quick-action-punishments'] = {}
+bot.d['faq-bot'] = {}
 
 class permissions:
     @staticmethod

@@ -27,7 +27,7 @@ class dt:
     """
     A class of dictionaries to be put as templates in Json files for the bot to use.
     """
-    # For localsetting.json
+    # For settings.json
     SETTINGS = {
         'token': None,
         'first_start': True,

@@ -58,7 +58,7 @@ class antislur(lightbulb.Plugin):
             action='delete',
             event=event,
             dm_offender=False,
-            reason='Used a slur in their message.\n(Automod: AntiSlur)',
+            reason=f'Used a slur in their message. (Automod: AntiSlur)\nContent detected: {event.message.content}',
         )
         success = result.get('success')
         return success

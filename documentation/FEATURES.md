@@ -29,7 +29,7 @@ Here are the Methods Alice uses to determine behavior:
   - Word-Space-Word Check<br>
   This detects if someone tries to hide a banned word by putting spaces between the letters.<br>
     Like "he ck"
-  - Similarity Check:<br>
+  - Similarity Check (WIP):<br>
     This detects if someone tries to hide a banned word by using similar characters such as
     "h3ck"
 
@@ -53,7 +53,9 @@ This means that if Alice makes a mistake, you can help her learn from it.<br> Wh
 is possible, Alice will ask for the community's input on whether an action was correct or not.
 
 ### AI Moderation
-Credit to: `Falconsai` on Huggingface for the AI models<br> 
+Credit to: `Falconsai` on Huggingface for the NSFW Image AI detection models<br>
+Credit to: Ollama for the Ollama3.2 LLM chat model.
+
 - **Operational**: Alice uses AI To keep community's safe.<br>
 Alice can detect messages that other moderation systems would not catch.<br>
 - **Computer Vision**: Alice can use computer vision to detect NSFW images.<br>
@@ -68,7 +70,6 @@ This feature is experimental, and depends upon good crowdsourced ratings of its 
   *Your privacy is respected by this project, and we intend to keep it that way.*<br><br>
 
 ### Quality of Life
-
 ### WebGUI
 - **Work In Progress**: A Control Dashboard accessible via the web.<br>
 Think like carlbot's dashboard, or MEE6's dashboard, but for Alice and with some additional

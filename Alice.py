@@ -241,6 +241,7 @@ if __name__ == '__main__':
     bot.load_extensions_from("cogs/modcmds/")
     bot.load_extensions_from("cogs/devcmds/")
     bot.load_extensions_from("cogs/help_cmds/")
+    bot.load_extensions_from("cogs/fun/")
     bot.load_extensions_from("cogs/error_handlers/")
     bot.load_extensions_from("cogs/tasks_dir/")
     if len(os.listdir("cogs/plugins/")) != 0:

@@ -10,7 +10,11 @@ Alice **A**uto**M**oderation is at your service.<br>[Support Server](https://dis
 </div>
 
 # What is Alice?
-Alice Is an AutoModeration (AM) bot designed for Discord.<br>
+Alice Is an AI-Ready AutoModeration (AM) bot designed for Discord.<br>
+Part of the idea of alice is to use modern AI methods to enhance moderation quality of servers but also to use the standard
+methods of moderation to ensure that the bot is reliable.<br>
+Your data is not used to train the AI.
+
 It was built with the idea of having a main "Alice" [Which anyone at all can invite](https://discord.com/api/oauth2/authorize?client_id=1198234471804182548&permissions=8&scope=bot+applications.commands)<br>
 But also a bot, which anyone can easily selfhost and add their own plugins to without much difficulty or even modify the bot's code entirely.
 

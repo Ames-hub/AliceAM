@@ -29,15 +29,17 @@ class civility_plugin(lightbulb.Plugin):
             # Higher than 49% will skip the AI check.
             return False
 
-        civility_check = AliceIntel.InsultPredictor.predict(
+        civility_response = AliceIntel.llm(user_id=event.author_id).predict_insult(
             text=event.message.content,
-            consider_trust=(True, event.author_id)
         )
+        print(f"Civility Response: {civility_response}")
 
-        if civility_check['label'] != "OFFENSIVE":
+        if civility_response != "OFFENSIVE":
             # Reward user for not breaking the rule
-            user.modify_trust(0.5, "+")
+            user.modify_trust(1, "+")
             return False
+        else:
+            user.modify_trust(0.5, "-")
 
         # An attempt to compensate for the inaccuracy of the AI.
         is_past_false_positive = automod.is_past_civility_fp(event.message.content)

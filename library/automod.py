@@ -854,45 +854,6 @@ class automod:
             self.account_for_rep = account_for_rep
             self.user_id = user_id
             self.guild_id = guild_id
-
-        def heuristical(self) -> list:
-            """
-            Checks if a message contains a forbidden word. Returns True if it does, False if it doesn't.
-            """
-            if self.content is None or self.content == "" or self.blacklist == []:
-                return []
-
-            custom_whitelist = []
-            if self.guild_id is not None:
-                custom_whitelist = PostgreSQL.guild(self.guild_id).get_custom_whitelist()
-
-            components = automod.text_checkers.components(
-                content=self.content,
-                blacklist=self.blacklist,
-                account_for_rep=self.account_for_rep,
-                user_id=self.user_id,
-                additional_whitelist=custom_whitelist
-            )
-
-            checks_list = [
-                components.equality_check,
-                components.substring_check,
-                components.symbol_check,
-                components.wsw_check,
-                components.similarity_check
-            ]
-
-            for check in checks_list:
-                # noinspection PyArgumentList
-                result:list = check()
-                assert result is not None, "Result must not be None."
-
-                if result[0] is False:
-                    continue
-                else:
-                    result.append(f'check:{check.__name__.replace("_check", "")}')
-                    return result
-            return [False, None, None, None]
     
         def rep_heuristic(self) -> list:
             """
@@ -902,8 +863,11 @@ class automod:
                 list: [bool, int, float, str]
 
                 bool: True if a forbidden word was found, False if not.
+
                 int: The index of the word found in the blacklist.
+
                 float: The similarity ratio between the two strings if the similarity check was tripped. (-1 if not)
+
                 str: The check that was tripped. (substring, symbol, equality, wsw, similarity)
             """
             if self.content is None or self.content == "" or self.blacklist == []:
@@ -930,7 +894,8 @@ class automod:
                 components.substring_check,
                 components.symbol_check,
                 components.wsw_check,
-                components.similarity_check
+                # TODO: Similarity check is too unstable. Further development is needed.
+                # components.similarity_check
             ]
 
             for check in checks_list:
@@ -1087,12 +1052,7 @@ class automod:
                 for word in self.content.split(" "):
                     for item in self.blacklist:
                         similarity = SequenceMatcher(None, a=word, b=item).ratio()
-                        # Converts the similarity ratio to a number that users can understand and is not too punishing
-                        # Eg, 0.8 * 90 = 72% similarity and needs >72% trust to be tripped
-                        similarity = similarity * 90
-
                         # Debug code. Uncomment to see the similarity ratio
-                        # print(f"word: {word}\nitem: {item}\nsimilarity: {similarity}\nratio: {ratio}\n\nNEW CHECK\n\n")
                         if similarity >= self.user_trust:
                             if word in self.whitelist:
                                 continue
