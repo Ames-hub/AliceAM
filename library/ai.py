@@ -92,18 +92,24 @@ class AliceIntel:
             print(response)
             return response
 
-        def faq_ai(self, question):
+        def faq_ai(self, question, response_only=True) -> dict | str:
             """
             Get a response from the AI as a FAQ guide.
             :param question: The question to ask the AI.
+            :param response_only: Whether to return the response only or not.
             :return: The predicted response.
+
+            If response_only is True, it will return the response only.
+            Else, it will return a dictionary with the response and whether the chat is done or not.
+
+            format: {'response': str, 'chat_done': bool}
+
+            The AI will respond with a message that is a response to the question.
             """
             with open('library/ai/faq_prompt.txt', 'r') as f:
                 PROMPT = f.read().strip()
 
             PROMPT = PROMPT.replace("% QUESTION %", question)
-
-
 
             try:
                 if bot.d['faq-bot'][self.user_id]['chat_history'] is not None:
@@ -127,7 +133,18 @@ class AliceIntel:
             response = self.prompt_ai('llama3.2', PROMPT)
             bot.d['faq-bot'][self.user_id]['chat_history'].append(response)
 
-            return response.strip()
+            response = response.strip()
+
+            if not response_only:
+                chat_done = "%ENDPROMPT%" in response
+                if chat_done:
+                    response = response.replace("%ENDPROMPT%", "")
+                return {
+                    'response': response,
+                    'chat_done': chat_done
+                }
+            else:
+                return response
 
         def prompt_ai(self, module_name, message, custom_role:str=None):
             """
@@ -191,3 +208,14 @@ class AliceIntel:
                 list: The chat history.
             """
             return self.history.get(user_id, {}).get(module_name, [])
+
+        def clear_chat_history(self, user_id, module_name="llama3.2"):
+            """
+            Clear the chat history for a specific module and user.
+
+            Args:
+                module_name (str): The name of the module.
+                user_id (str): The ID of the user.
+            """
+            if user_id in self.history and module_name in self.history[user_id]:
+                self.history[user_id][module_name] = []

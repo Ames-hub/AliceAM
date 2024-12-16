@@ -575,6 +575,10 @@ class PostgreSQL:
                 'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
                 'word': 'TEXT NOT NULL UNIQUE',
             },
+            'faqbot_tos_accepted': {
+                'user_id': 'BIGINT NOT NULL PRIMARY KEY',
+                'accepted': 'BOOLEAN NOT NULL DEFAULT FALSE',
+            },
             'guild_log_channels': {
                 'guild_id': 'BIGINT NOT NULL PRIMARY KEY',
                 'channel_id': 'BIGINT DEFAULT NULL',
@@ -1434,6 +1438,40 @@ class PostgreSQL:
         def __init__(self, user_id: int) -> None:
             PostgreSQL.db_tables.ensure_user(user_id) # Makes sure the user is in the database
             self.user_id = int(user_id)
+
+        def set_accepted_faqbot_tos(self, status: bool = True) -> bool:
+            """
+            Accepts the FAQBot terms of service for the user.
+            """
+            query = """
+            INSERT INTO faqbot_tos_accepted (user_id, accepted)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET accepted = EXCLUDED.accepted
+            """
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.user_id, bool(status)))
+                    conn.commit()
+                return True
+            except Exception as err:
+                logging.error(f"Could not accept FAQBot TOS for user {self.user_id}.", err)
+                return False
+
+        def get_faqbot_tos_accepted(self) -> bool:
+            """
+            Returns whether the user has accepted the FAQBot terms of service.
+            """
+            query = "SELECT accepted FROM faqbot_tos_accepted WHERE user_id=%s"
+            try:
+                with PostgreSQL.get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(query, (self.user_id,))
+                    result = cur.fetchone()
+                return result[0] if result is not None else False
+            except Exception as err:
+                logging.error(f"Could not get FAQBot TOS status for user {self.user_id}.", err)
+                return False
 
         def begin_lt_punishment(self, guild_id: int, duration: int, infraction_id: int) -> bool:
             """
